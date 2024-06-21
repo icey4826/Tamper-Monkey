@@ -1,0 +1,186 @@
+// ==UserScript==
+// @name         Procore Buttons
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Add buttons to copy company name and project number
+// @match        https://app.procore.com/*
+// @match        https://us02.procore.com/*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=procore.com
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+      // Function to add a button to the page with customizable position
+function addButton(text, onClickFunction, top = '20%', left = '50%') {
+    var button = document.createElement('button');
+    button.innerHTML = `<span>${text}</span>`;
+    button.className = 'button-64'; // Assign the custom class name for styling
+    button.onclick = onClickFunction;
+
+    // Custom styles for the button
+    button.style.padding = '4px 11px';
+    button.style.fontSize = '13px';
+    button.style.minWidth = '100px';
+    button.style.backgroundImage = 'linear-gradient(144deg,#000000 70%, #FF8C00 85%, #FFA500)';
+    button.style.border = '0';
+    button.style.borderRadius = '8px';
+    button.style.boxShadow = 'rgba(151, 65, 252, 0.2) 0 15px 30px -5px';
+    button.style.boxSizing = 'border-box';
+    button.style.color = 'white';
+    button.style.display = 'flex';
+    button.style.fontFamily = 'Phantomsans, sans-serif';
+    button.style.justifyContent = 'center';
+    button.style.lineHeight = '1em';
+    button.style.maxWidth = '30%';
+    button.style.textDecoration = 'none';
+    button.style.userSelect = 'none';
+    button.style.webkitUserSelect = 'none';
+    button.style.touchAction = 'manipulation';
+    button.style.whiteSpace = 'nowrap';
+    button.style.cursor = 'pointer';
+    button.style.position = 'absolute'; // Ensure the button can be positioned freely
+    button.style.top = top;
+    button.style.left = left;
+    button.style.transform = 'translateX(-50%)';
+    button.style.zIndex = '10000000';
+
+    // Hover styles
+    button.onmouseover = function() {
+        this.style.backgroundImage = 'linear-gradient(144deg, #000000, #FF8C00 50%, #FFA500)';
+    };
+    button.onmouseout = function() {
+        this.style.backgroundImage = 'linear-gradient(144deg, #000000 70%, #FF8C00 85%, #FFA500)';
+    };
+
+    // Insert the button into the page
+    document.body.insertBefore(button, document.body.firstChild);
+}
+
+    // 1st Button Functions
+    function firstButtonFunctionality() {
+        setTimeout(function () {
+          javascript:(function() {    function copyToClipboard(text) {        var dummy = document.createElement('input');        document.body.appendChild(dummy);        dummy.setAttribute('value', text);        dummy.select();        document.execCommand('copy');        document.body.removeChild(dummy);    }        function showNotification(msg) {        var notification = document.createElement('div');        notification.textContent = msg;         Object.assign(notification.style, {            position: 'fixed',            top: '50%',            left: '50%',            transform: 'translate(-50%, -50%)',            backgroundColor: 'black',            color: 'yellow',            padding: '15px',            zIndex: '10000',            borderRadius: '5px',            fontSize: '25px',            maxWidth: '90%',            textAlign: 'center',            boxSizing: 'border-box',        });         document.body.appendChild(notification);         setTimeout(function () {            document.body.removeChild(notification);        }, 5000);     }    var selectors = [        '._3a100-QHByb',         '.StyledPickerLine-cmTGiP.StyledPickerTopLine-dWohVM',         'div.slds-form-element__control.slds-grid.itemBody > span > span.uiOutputText'    ];    var companyElement = null;    for (var i = 0; i < selectors.length; i++) {        companyElement = document.querySelector(selectors[i]);        if (companyElement) break;    }        if (companyElement) {        var companyName = companyElement.textContent.trim();        copyToClipboard(companyName);        showNotification('Company name "' + companyName + '" copied to clipboard.');        } else {        showNotification('Company element not found.');    }})();
+        }, 200);
+    }
+
+    // 2nd Button Functions
+    function secondButtonFunctionality() {
+        setTimeout(function () {
+           javascript:(function () { function copyToClipboard(text) { return new Promise((resolve, reject) => { const dummy = document.createElement('textarea'); document.body.appendChild(dummy); dummy.value = text; dummy.select(); const successful = document.execCommand('copy'); document.body.removeChild(dummy); if (successful) { resolve(); } else { reject('Copy to clipboard failed.'); } }); } const selectors = ['.StyledPickerBottomLine-cYiYmw', '._3F7vJ-QHByb']; let projectInfoElement = null; for (const selector of selectors) { projectInfoElement = document.querySelector(selector); if (projectInfoElement) break; } if (projectInfoElement) { const projectDetailsMatch = projectInfoElement.textContent.match(/([A-Za-z0-9-.]+)(\s-\s)(.+)/); if (projectDetailsMatch) { const projectNumber = projectDetailsMatch[1]; const projectName = projectDetailsMatch[3]; const webAddress = window.location.href; copyToClipboard(webAddress) .then(() => new Promise(resolve => setTimeout(resolve, 500))) .then(() => copyToClipboard(projectNumber)) .then(() => new Promise(resolve => setTimeout(resolve, 500))) .then(() => copyToClipboard(projectName)) .then(() => { alert(`Copied to clipboard:\n\nWeb address: ${webAddress}\nProject number: ${projectNumber}\nProject name: ${projectName}`); }) .catch(error => alert(error)); } else { alert('Project details not found.'); } } else { alert('Project information element not found.'); } })();
+        }, 200);
+    }
+
+        // 3rd Button Functions
+    function thirdButtonFunctionality() {
+        setTimeout(function () {
+         javascript:(function() { window.focus(); try { function showNotification(msg) { var notification = document.createElement('div'); notification.textContent = msg; Object.assign(notification.style, { position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', backgroundColor: 'black', color: 'yellow', padding: '15px', zIndex: '10000', borderRadius: '5px', fontSize: '25px', maxWidth: '90%', textAlign: 'center', boxSizing: 'border-box', }); document.body.appendChild(notification); setTimeout(function () { document.body.removeChild(notification); }, 5000); } function copyToClipboard(text) { var dummy = document.createElement('textarea'); document.body.appendChild(dummy); dummy.value = text; dummy.select(); document.execCommand('copy'); document.body.removeChild(dummy); } function findCompanyIDInUrl() { const url = window.location.href; let match = url.match(/companies\/(\d+)/); if (match) { return match[1]; } return null; } function findCompanyIDInBody() { const bodyContent = document.body.innerHTML; let match = bodyContent.match(/auth\?company_id=(\d+)/); if (match) { return match[1]; } return null; } function findCompanyIDInVisibleContent() { const visibleContent = document.body.innerText; const regex = /(https:\/\/[a-z0-9]+\.procore\.com|https:\/\/us[0-9]{2}\.procore\.com)\/(\d+)\/company\/home/g; const match = regex.exec(visibleContent); if (match && match.length >= 3) { return { baseUrl: match[1], companyID: match[2] }; } return null; } function getPath(url) { if (/prime_contracts\/\d*\/change_orders\/change_order_packages/.test(url)) { return "/company/erp_integrations/prime_contract_change_orders/ready_to_export"; } else if (/prime_contracts/.test(url)) { return "/company/erp_integrations/prime_contracts/ready_to_import"; } else if (/contract_change_orders\/\d*/.test(url)) { return "/company/erp_integrations/commitment_change_orders/ready_to_export"; } else if (/requisitions/.test(url)) { return "/company/erp_integrations/subcontractor_invoices"; } else if (/order_contracts/.test(url)) { return "/company/erp_integrations/commitments/ready_to_export"; } else if (/directory\/vendors/.test(url)) { return "/company/erp_integrations/vendors/ready_to_import"; } else if (/budgeting/.test(url)) { return "/company/erp_integrations/budgets/ready_to_import"; } else if (/(project\/home)|(project\/admin)|(wbs)/.test(url)) { return "/company/erp_integrations/jobs/ready_to_import"; } else { return "/company/erp_integrations/commitments/ready_to_export"; } } function main() { let url = document.location.href; let domain = url.split(".com")[0]; let id = null; try { id = Procore.Environment.companyId; } catch { id = findCompanyIDInUrl() || findCompanyIDInBody(); } if (!id) { setTimeout(() => { const result = findCompanyIDInVisibleContent(); if (result) { id = result.companyID; copyToClipboard(id); showNotification("Company ID " + id + " copied!"); const newUrl = `${result.baseUrl}/${id}${getPath(url)}`; console.log('Opening in new tab:', newUrl); window.open(newUrl, '_blank'); } else { showNotification('Company ID not found.'); } }, 1000); return; } copyToClipboard(id); showNotification("Company ID " + id + " copied!"); const path = getPath(url); const newUrl = `${domain}.com/${id}${path}`; console.log('Opening in new tab:', newUrl); window.open(newUrl, '_blank'); } main(); } catch { alert("Oops! Are you certain that you're on a Procore page?"); } })();
+        }, 200);
+    }
+    // 4th Button Functions
+    function fourthButtonFunctionality() {
+        setTimeout(function () {
+         javascript:(function(){window.focus();if (document.location.href.includes("webclients")){varid = document.location.href.match(/companies\/(\d*)/m)[1];}else {var id =document.body.innerHTML.match(/auth\?company_id=(\d+)/gm)[0].slice(16);}navigator.clipboard.writeText(id);alert("Company ID " +id+ " copied!");})();
+        }, 200);
+    }
+        // 5th Button Functions
+    function fifthButtonFunctionality() {
+        setTimeout(function () {
+           (function() {
+    'use strict';
+
+    // Mappings
+    const erpMappings = {
+        "Sage": [
+            {MSid: ****, CompanyID: ****}, ],
+        "QuickBooks": [
+            {MSid: ****, CompanyID: ****}, ],
+        "Intacct": [
+           {MSid: ****, CompanyID: ****}, ],
+        "Spectrum": [
+            {MSid: ****, CompanyID: ****},]
+    };
+
+    // ERP Websites
+    function formatUrl(system, msid) {
+        switch (system) {
+            case "Sage":
+                return `https://erp-sage-service.us01.production.procoretech.com/companies/${msid}/requests`;
+            case "QuickBooks":
+                return `https://quickbooks.procore.com/companies/${msid}/requests`;
+            case "Intacct":
+                return `https://intacct.procoretech.com/companies/${msid}/requests`;
+                case "Spectrum":
+                return `https://spectrum.procore.com/companies/${msid}/requests`;
+            default:
+                return null; // Handle the case for an unrecognized system
+        }
+    }
+
+    // Extract company ID from the current URL
+    function extractCompanyId() {
+        // Checking if the URL includes 'webclients', and extracting ID from URL
+        if (window.location.href.includes("webclients")) {
+            const urlMatch = window.location.href.match(/companies\/(\d+)/);
+            return urlMatch ? urlMatch[1] : null;
+        }
+        // Otherwise, try to extract ID from page content
+        else {
+            const htmlMatch = document.body.innerHTML.match(/auth\?company_id=(\d+)/);
+            return htmlMatch ? htmlMatch[1] : null;
+        }
+    }
+
+    // Handle the company ID after it's extracted
+    function handleCompanyId(companyId) {
+        console.log(`Handling Company ID: ${companyId}`);
+        Object.entries(erpMappings).forEach(([system, mappings]) => {
+            mappings.forEach(mapping => {
+                if (mapping.CompanyID.toString() === companyId) {
+                    const targetUrl = formatUrl(system, mapping.MSid);
+                    if (targetUrl) {
+                        console.log(`Opening URL: ${targetUrl}`);
+                        window.open(targetUrl, '_blank');
+                    } else {
+                        console.error(`No URL available for System: ${system} and MSid: ${mapping.MSid}`);
+                    }
+                }
+            });
+        });
+    }
+
+    // Extract and handle the company ID
+    const currentCompanyId = extractCompanyId(window.location.href);
+    if (currentCompanyId) {
+        handleCompanyId(currentCompanyId);
+    } else {
+        console.log('No valid company ID found in the URL.');
+    }
+})();
+
+        }, 200);
+    }
+     // 6th Button Functions
+    function sixthButtonFunctionality() {
+        setTimeout(function () {
+             javascript:(function () { window.focus(); function promptAndCopy(text, htmlText) { const userText = prompt("Edit the text before copying:", text); if (userText !== null) { const clipboardItem = new ClipboardItem({ "text/plain": new Blob([userText], { type: "text/plain" }), "text/html": new Blob([htmlText.replace(text, userText)], { type: "text/html" }) }); navigator.clipboard.write([clipboardItem]).then(function () { var notification = document.createElement("div"); notification.style.position = 'fixed'; notification.style.top = '50%'; notification.style.left = '50%'; notification.style.transform = 'translate(-50%, -50%)'; notification.style.backgroundColor = 'black'; notification.style.color = 'yellow'; notification.style.padding = '25px'; notification.style.zIndex = '1000'; notification.style.borderRadius = '15px'; notification.style.textAlign = 'center'; notification.innerText = "Copied: " + userText; document.body.appendChild(notification); setTimeout(function () { document.body.removeChild(notification); }, 2000); }).catch(err => { alert('Failed to copy text: ' + err); }); } } function fallbackCopy() { setTimeout(function () { try { var pageTitle = document.title; var pageURL = document.location.href; var plaintext = pageTitle + " " + pageURL; var richtext = "<a href='" + pageURL + "'>" + pageTitle + "</a>"; const clipboardItem = new ClipboardItem({ "text/plain": new Blob([plaintext], { type: "text/plain" }), "text/html": new Blob([richtext], { type: "text/html" }) }); navigator.clipboard.write([clipboardItem]).then(function () { var notification = document.createElement("div"); notification.style.position = 'fixed'; notification.style.top = '50%'; notification.style.left = '50%'; notification.style.transform = 'translate(-50%, -50%)'; notification.style.backgroundColor = 'black'; notification.style.color = 'yellow'; notification.style.padding = '25px'; notification.style.zIndex = '1000'; notification.style.borderRadius = '15px'; notification.style.textAlign = 'center'; notification.innerText = "Copied: " + plaintext; document.body.appendChild(notification); setTimeout(function () { document.body.removeChild(notification); }, 2000); }, function (err) { alert("Error: " + err); }); } catch (err) { alert("Oops! There was an error: " + err); } }, 100); } try { const url = document.location.href; let text = ""; let htmlText = ""; const getElementText = (selector) => document.querySelector(selector)?.outerHTML.split(">")[1].split("<")[0]; const handlers = [ { regex: /erp_integrations/, getText: () => { let title = "ERP Integration Tool "; const entity = url.split(".com/")[1].split("/")[3]; const titles = { "default_financial_groupings": "(Std. Cost Codes & Cost Types)", "vendors": "(Companies)", "jobs": "(Jobs)", "sub_jobs": "(Sub Jobs)", "budgets": "(Budgets)", "commitments": "(Commitments)", "commitment_change_orders": "(Commitment Change Orders)", "prime_contracts": "(Prime Contracts)", "prime_contract_change_orders": "(Prime Contract Change Orders)", "job_costs": "(Job Costs)", "subcontractor_invoices": "(Subcontractor Invoices)" }; title += titles[entity] || ""; return [title + " " + url, '<a href="' + url + '">' + title + "</a>"]; } }, { regex: /prime_contracts\/\d*\/change_orders\/change_order_packages/, getText: () => { const breadcrumb = document.body.innerHTML.match(/<nav class="breadcrumbs"><(.*)/gm)[0]; const primeContract = breadcrumb.match(/#(.{1,40})<\/span>/g)[0].slice(1, -7); const changeOrder = breadcrumb.match(/\"active\">(.*)<\/span>/g)[0].slice(9, -7).split(":")[0]; return [changeOrder + " on Prime Contract " + primeContract + " " + url, '<a href="' + url + '">' + changeOrder + "</a> on Prime Contract " + primeContract]; } }, { regex: /prime_contracts\/\d*\/payment_applications/, getText: () => { let invoiceNumber = getElementText("[data-testid='invoice_number']") || document.body.innerHTML.match(/Invoice #:\n*\s*<\/th>\n.*<td>\n\s*([^<]*)\n/)[1]; let primeContract = getElementText("[data-qa='field_number']") + " - " + getElementText("[data-qa='field_title']") || document.body.innerHTML.match(/<nav class="breadcrumbs"><(.*)/gm)[0].match(/#(.{1,40})<\/span>/g)[0].slice(1, -7); return ["Invoice #" + invoiceNumber + " on Prime Contract " + primeContract + " " + url, '<a href="' + url + '">Invoice #' + invoiceNumber + "</a> on Prime Contract " + primeContract]; } }, { regex: /prime_contracts/, getText: () => { let primeContract = getElementText("[data-qa='field_number']") + " - " + getElementText("[data-qa='field_title']") || document.body.innerHTML.match(/<nav class="breadcrumbs"><(.*)/gm)[0].match(/#(.{1,40})<\/span>/g)[0].slice(1, -7); return ["Prime Contract " + primeContract + " " + url, 'Prime Contract <a href="' + url + '">' + primeContract + "</a>"]; } }, { regex: /contract_change_orders\/\d*/, getText: () => { const breadcrumb = document.body.innerHTML.match(/<nav class="breadcrumbs"><(.*)/gm)[0]; const commitmentNumber = breadcrumb.match(/<span>([^<]*)/g)[1].split("#")[1]; const changeOrder = breadcrumb.match(/<span class="active">([^<]*)/)[1].split(":")[0]; return [changeOrder + " on Commitment " + commitmentNumber + " " + url, '<a href="' + url + '">' + changeOrder + "</a> on Commitment " + commitmentNumber]; } }, { regex: /requisitions/, getText: () => { let invoiceNumber = getElementText("[data-testid='invoice_number']") || document.body.innerHTML.match(/Invoice #:<\/th>\n.*<td>([^<]*)/)[1]; let commitmentNumber = getElementText("[data-testid='showCommitment']").split("#")[1] || document.body.innerHTML.match(/<nav class="breadcrumbs"><(.*)/gm)[0].match(/<span>([^<]*)/g)[1].split("#")[1]; return ["Invoice #" + invoiceNumber + " on Commitment " + commitmentNumber + " " + url, '<a href="' + url + '">Invoice #' + invoiceNumber + "</a> on Commitment " + commitmentNumber]; } }, { regex: /contracts\/.*\/payments/, getText: () => { let commitmentNumber = getElementText("[data-qa='breadcrumb_active']").split("#")[1] || document.body.innerHTML.match(/<nav class="breadcrumbs"><(.*)/gm)[0].match(/class="active">([^<]*)/)[1].split("#")[1]; return ["Payments on Commitment " + commitmentNumber + " " + url, '<a href="' + url + '">Payments</a> on Commitment ' + commitmentNumber]; } }, { regex: /order_contracts/, getText: () => { let commitmentNumber = getElementText("[data-qa='breadcrumb_active']").split("#")[1] || document.body.innerHTML.match(/<nav class="breadcrumbs"><(.*)/gm)[0].match(/class="active">([^<]*)/)[1].split("#")[1]; return ["Commitment " + commitmentNumber + " " + url, 'Commitment <a href="' + url + '">' + commitmentNumber + "</a>"]; } }, { regex: /directory\/vendors/, getText: () => { const breadcrumb = document.body.innerHTML.match(/<nav class="breadcrumbs"><(.*)/gm)[0]; const vendorName = breadcrumb.match(/class="active">([^<]*)/)[1].trim(); let externalID = document.body.innerHTML.match(/External ID: ([^<]*)/)[1].trim() || document.body.innerHTML.match(/ERP Vendor ID: ([^<]*)/)[1].trim() || "N/A"; return ["Vendor " + externalID + " - " + vendorName + " " + url, 'Vendor <a href="' + url + '">' + externalID + " - " + vendorName + "</a>"]; } }, { regex: /budgeting/, getText: () => { let projectName = getElementText("[data-header='picker-company-project']").split(" - ")[0] || "Project " + url.split(".com/projects/")[1].split("/")[0]; return [projectName + "'s Budget " + url, projectName + "'s <a href=\"" + url + '">Budget</a>']; } }, { regex: /wbs\/.*\/cost-codes/, getText: () => { const projectName = getElementText("[data-header='picker-company-project']").split(" ")[0]; const subJobName = getElementText("[data-qa='segment-breadcrumbs-name']"); return ["Sub Job " + subJobName + " " + url, 'Sub Job <a href="' + url + '">' + subJobName + "</a> on Project " + projectName]; } }, { regex: /wbs\/.*\/segment-items|tools\/wbs/, getText: () => { const projectName = getElementText("[data-header='picker-company-project']").split(" ")[0]; let segmentHeader = getElementText("[data-testid='segment-header']") || "Cost Code"; return [segmentHeader + "s " + url, '<a href="' + url + '">' + segmentHeader + "s</a> on Project " + projectName]; } }, { regex: /(project\/home)|(project\/admin)/, getText: () => { let projectName = getElementText("[data-header='picker-company-project']").split(" - ")[0] || "Project " + url.split(".com/projects/")[1].split("/")[0]; return ["Project " + projectName + " " + url, 'Project <a href="' + url + '">' + projectName + "</a>"]; } }, { regex: /support\.procore/, getText: () => { const title = document.querySelector("[id='title']").innerHTML.trim(); return [title + " " + url, '<a href="' + url + '">' + title + "</a>"]; } } ]; for (const handler of handlers) { if (handler.regex.test(url)) { [text, htmlText] = handler.getText(); promptAndCopy(text, htmlText); return; } } fallbackCopy(); } catch (error) { fallbackCopy(); } })();
+        }, 200);
+    }
+     // 7th Button Functions
+    function seventhButtonFunctionality() {
+        setTimeout(function () {
+             javascript:(function(){var url = document.location.href;var domain = url.split(".com")[0];try {var companyID = Procore.Environment.companyId;var projectID = Procore.Environment.projectID;}catch {var id = url.match(/companies\/(\d*)/m)[1];}let xhr = new XMLHttpRequest();xhr.onreadystatechange = function() {if (this.readyState == 4 && this.status == 200) {alert("Successfully requested a JC refresh for project " + projectID); }};xhr.open("get", domain + ".com/" + companyID + "/company/erp_integrations/job_costs/refresh?active_synced_projects=" + projectID + "&commit=Sync+Job+Costs+for+Selected+Job");xhr.setRequestHeader("Accept", "text/html");xhr.setRequestHeader("Content-Type", "text/html");xhr.onload = () => console.log(xhr.responseText);let data = `{""}`;xhr.send(data);})();
+        }, 200);
+    }
+    // Edit BUTTONS here (name, placement)
+    window.addEventListener('load', function() {
+        addButton('Copy 🏢 Name', firstButtonFunctionality, '48px', '100px');
+        addButton('Copy 🏗️ info ', secondButtonFunctionality, '48px', '250px');
+        addButton('ERP 🧿', thirdButtonFunctionality, '48px', '370px');
+        addButton('Company ID', fourthButtonFunctionality, '48px', '500px');
+        addButton('Microservice', fifthButtonFunctionality, '48px', '630px');
+        addButton('Hyper🔗', sixthButtonFunctionality, '48px', '760px');
+        addButton('♻️ Cost Codes/JC', seventhButtonFunctionality, '48px', '890px');
+    });
+})();
