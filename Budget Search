@@ -1,0 +1,127 @@
+// ==UserScript==
+// @name         Budget Search
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Highlight budget amounts with any input.
+// @author       Ivan Petrov
+// @match        https://app.procore.com/projects/*/budgeting
+// @match        https://us02.procore.com/projects/*/budgeting
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=procore.com
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    const searchInput = document.createElement('input');
+    searchInput.type = 'text';
+    searchInput.placeholder = 'Search budget';
+    searchInput.style.position = 'fixed';
+    searchInput.style.top = '140px';
+    searchInput.style.left = '700px';
+    searchInput.style.zIndex = '1000';
+    document.body.appendChild(searchInput);
+
+    const statusIndicator = document.createElement('div');
+    statusIndicator.style.position = 'fixed';
+    statusIndicator.style.top = '140px';
+    statusIndicator.style.left = '875px';
+    statusIndicator.style.zIndex = '1000';
+    statusIndicator.style.padding = '5px 10px';
+    statusIndicator.style.borderRadius = '5px';
+    statusIndicator.textContent = 'Waiting...';
+    statusIndicator.style.backgroundColor = 'gray';
+    document.body.appendChild(statusIndicator);
+
+    let searchInterval;
+
+    function normalizeNumber(text) {
+        return text.replace(/[^\d.]/g, '');
+    }
+
+    function formatNumberWithCommas(number) {
+        return number.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    function extractNumbers(text) {
+        const matches = text.match(/\b\d+(\.\d+)?\b/g);
+        return matches || [];
+    }
+
+    function highlightText(element, searchTerm) {
+        const regex = new RegExp(`(${searchTerm.replace('.', '\\.')})`, 'gi');
+        element.innerHTML = element.innerHTML.replace(regex, '<span style="color: yellow;">$1</span>');
+    }
+
+    function performTextSearch() {
+        const rawSearchTerm = searchInput.value.trim();
+
+        if (rawSearchTerm === '') {
+            statusIndicator.textContent = 'Waiting...';
+            statusIndicator.style.backgroundColor = 'gray';
+            return;
+        }
+
+        statusIndicator.textContent = 'Searching...';
+        statusIndicator.style.backgroundColor = 'orange';
+
+        const searchNumbers = extractNumbers(rawSearchTerm).map(num => formatNumberWithCommas(normalizeNumber(num)));
+
+        if (searchNumbers.length >= 4 || normalizeNumber(rawSearchTerm).length >= 4) {
+            const searchableElements = document.querySelectorAll('#clusterTable .summaryTable_row__1db3S');
+            let found = false;
+
+            searchableElements.forEach(row => {
+                let rowMatches = false;
+                row.querySelectorAll('[data-qatag]').forEach(cell => {
+                    cell.innerHTML = cell.innerHTML.replace(/<span style="color: yellow;">(.*?)<\/span>/g, '$1');
+
+                    const cellText = cell.innerText;
+                    const cellNumbers = extractNumbers(cellText);
+
+                    cellNumbers.forEach(num => {
+                        if (normalizeNumber(num).length >= 4 && searchNumbers.includes(formatNumberWithCommas(normalizeNumber(num)))) {
+                            highlightText(cell, num);
+                            rowMatches = true;
+                        }
+                    });
+
+                    searchNumbers.forEach(num => {
+                        if (cellText.includes(num)) {
+                            highlightText(cell, num);
+                            rowMatches = true;
+                        }
+                    });
+                });
+                if (rowMatches) {
+                    found = true;
+                }
+            });
+
+            if (found) {
+                statusIndicator.textContent = 'Match found!';
+                statusIndicator.style.backgroundColor = 'green';
+            } else {
+                statusIndicator.textContent = 'Nothing Yet';
+                statusIndicator.style.backgroundColor = 'yellow';
+            }
+        } else {
+            const elementsToClear = document.querySelectorAll('#clusterTable .summaryTable_row__1db3S');
+            elementsToClear.forEach(row => {
+                row.querySelectorAll('[data-qatag]').forEach(cell => {
+                    cell.innerHTML = cell.innerHTML.replace(/<span style="color: yellow;">(.*?)<\/span>/g, '$1');
+                });
+            });
+            statusIndicator.textContent = 'Waiting...';
+            statusIndicator.style.backgroundColor = 'gray';
+        }
+    }
+
+    function setupContinuousSearch() {
+        if (searchInterval) clearInterval(searchInterval);
+        searchInterval = setInterval(performTextSearch, 1000);
+    }
+
+    setupContinuousSearch();
+    searchInput.addEventListener('input', setupContinuousSearch);
+})();
