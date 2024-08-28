@@ -1,0 +1,184 @@
+// ==UserScript==
+// @name         Copy Links with Right Click and Drag Selection
+// @namespace    http://tampermonkey.net/
+// @version      1.11
+// @description  Right-click to copy a single link or drag to select and copy multiple links
+// @author       Your Name
+// @match        *://*/*
+// @grant        GM_addStyle
+// ==/UserScript==
+
+(function () {
+    'use strict';
+
+    let isDragging = false;
+    let startX, startY;
+    let selectionBox = null;
+    let selectedLinks = [];
+    let isXKeyPressed = false;
+
+    // Add CSS for the selection box and highlighted links
+    GM_addStyle(`
+        .selection-box {
+            position: absolute;
+            border: 2px dashed #007BFF;
+            background-color: rgba(0, 123, 255, 0.1);
+            pointer-events: none;
+            z-index: 9999;
+        }
+        .highlighted-link {
+            background-color: #FFD700 !important; /* Gold color for visibility */
+            color: #000 !important; /* Black text for high contrast */
+        }
+        @media (prefers-color-scheme: dark) {
+            .highlighted-link {
+                background-color: #FF8C00 !important; /* Darker orange for dark mode */
+                color: #FFF !important; /* White text for high contrast */
+            }
+        }
+    `);
+
+    // Handle right-click to copy single link
+    async function handleRightClick(event) {
+        if (event.target.tagName.toLowerCase() === 'a') {
+            const link = event.target;
+            const linkText = link.textContent.trim();
+
+            // Highlight the link
+            link.classList.add('highlighted-link');
+
+            try {
+                // Create clipboard items with the single link text
+                const clipboardItem = new ClipboardItem({
+                    "text/plain": new Blob([linkText], { type: "text/plain" }),
+                    "text/html": new Blob([`<a href="${link.href}">${linkText}</a>`], { type: "text/html" })
+                });
+
+                // Write to clipboard
+                await navigator.clipboard.write([clipboardItem]);
+
+                console.log('Single link text copied to clipboard');
+            } catch (err) {
+                console.error('Failed to copy link text: ', err);
+            }
+
+            // Remove highlight after 1 second
+            setTimeout(() => {
+                link.classList.remove('highlighted-link');
+            }, 1000); // Highlight duration in milliseconds
+        }
+    }
+
+    // Start dragging if X is held and mouse is down
+    function startDrag(event) {
+        if (isXKeyPressed && event.button === 0) { // Only trigger for left mouse button
+            event.preventDefault(); // Prevent default text selection
+            isDragging = true;
+            startX = event.clientX;
+            startY = event.clientY;
+
+            // Create a new selection box element
+            selectionBox = document.createElement('div');
+            selectionBox.className = 'selection-box';
+            document.body.appendChild(selectionBox);
+
+            // Reset selected links
+            selectedLinks.forEach(link => link.classList.remove('highlighted-link'));
+            selectedLinks = [];
+        }
+    }
+
+    // Update the selection box dimensions
+    function updateDrag(event) {
+        if (!isDragging || !selectionBox) return;
+
+        const currentX = event.clientX;
+        const currentY = event.clientY;
+
+        const left = Math.min(startX, currentX);
+        const top = Math.min(startY, currentY);
+        const width = Math.abs(currentX - startX);
+        const height = Math.abs(currentY - startY);
+
+        selectionBox.style.left = `${left}px`;
+        selectionBox.style.top = `${top}px`;
+        selectionBox.style.width = `${width}px`;
+        selectionBox.style.height = `${height}px`;
+
+        // Check which links are within the selection box
+        document.querySelectorAll('a').forEach(link => {
+            const rect = link.getBoundingClientRect();
+            if (rect.left >= left && rect.right <= left + width &&
+                rect.top >= top && rect.bottom <= top + height) {
+                if (!selectedLinks.includes(link)) {
+                    selectedLinks.push(link);
+                    link.classList.add('highlighted-link');
+                }
+            } else {
+                link.classList.remove('highlighted-link');
+                const index = selectedLinks.indexOf(link);
+                if (index > -1) {
+                    selectedLinks.splice(index, 1);
+                }
+            }
+        });
+    }
+
+    // End the drag action and copy selected links to clipboard
+    async function endDrag(event) {
+        if (isDragging && event.button === 0) { // Ensure it's the left mouse button
+            isDragging = false;
+            if (selectionBox) {
+                document.body.removeChild(selectionBox);
+                selectionBox = null;
+            }
+
+            if (selectedLinks.length > 0) {
+                try {
+                    const textItems = selectedLinks.map(link => link.textContent.trim());
+                    const htmlItems = selectedLinks.map(link => `<a href="${link.href}">${link.textContent.trim()}</a>`);
+
+                    // Create clipboard items with all selected links
+                    const clipboardItem = new ClipboardItem({
+                        "text/plain": new Blob([textItems.join('\n')], { type: "text/plain" }),
+                        "text/html": new Blob([htmlItems.join('<br>')], { type: "text/html" })
+                    });
+
+                    // Write to clipboard
+                    await navigator.clipboard.write([clipboardItem]);
+
+                    console.log('Selected links copied to clipboard');
+                } catch (err) {
+                    console.error('Failed to copy selected links: ', err);
+                }
+            }
+
+            // Clear highlights
+            selectedLinks.forEach(link => link.classList.remove('highlighted-link'));
+            selectedLinks = [];
+        }
+    }
+
+    // Handle keydown for X key
+    function handleKeyDown(event) {
+        if (event.key === 'x' || event.key === 'X') {
+            isXKeyPressed = true;
+        }
+    }
+
+    // Handle keyup for X key
+    function handleKeyUp(event) {
+        if (event.key === 'x' || event.key === 'X') {
+            isXKeyPressed = false;
+        }
+    }
+
+    // Attach event listeners for mouse and keyboard events
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('mousedown', startDrag);
+    window.addEventListener('mousemove', updateDrag);
+    window.addEventListener('mouseup', endDrag);
+    document.addEventListener('contextmenu', handleRightClick);
+
+})();
