@@ -1,0 +1,194 @@
+// ==UserScript==
+// @name         Boomi Buttons
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Increase productivity with boomi
+// @match        https://platform.boomi.com/AtomSphere.html*
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // Function to add a button to the page
+    function addButton(text, onClickFunction, top, left) {
+        var button = document.createElement('button');
+        button.innerHTML = `<span>${text}</span>`;
+        button.className = 'button';
+        button.onclick = onClickFunction;
+        // Custom styles for the button
+        button.style = `font-size: 13px; min-width: 80px;
+                        background-image: linear-gradient(144deg, #000000 70%, #FF8C00 85%, #FFA500);
+                        border: 0; border-radius: 5px; box-shadow: rgba(151, 65, 252, 0.2) 0 15px 30px -5px;
+                        color: white; display: flex; font-family: Phantomsans, sans-serif;
+                        justify-content: center; max-width: 30%; text-decoration: none;
+                        user-select: none; touch-action: manipulation; white-space: nowrap; cursor: pointer;
+                        position: absolute; top: ${top}; left: ${left}; transform: translateX(-50%);
+                        z-index: 10000000;`;
+        button.onmouseover = function() {
+            this.style.backgroundImage = 'linear-gradient(144deg, #000000, #FF8C00 50%, #FFA500)';
+        };
+        button.onmouseout = function() {
+            this.style.backgroundImage = 'linear-gradient(144deg, #000000 70%, #FF8C00 85%, #FFA500)';
+        };
+        document.body.insertBefore(button, document.body.firstChild);
+    }
+
+    // Functionality for the first button
+    function firstButtonFunctionality() {
+        var addButton = document.querySelector('button.gwt-Button[data-locator="button-add-filter"]');
+        if (addButton) addButton.click();
+        setTimeout(function() {
+            var processLink = document.querySelector('a.gwt-Anchor[data-locator="link-process"]');
+            if (processLink) processLink.click();
+            setTimeout(function() {
+                var inputField = document.querySelector('input.filter_input.uneditable_text');
+                if (inputField) {
+                    inputField.click();
+                    inputField.focus();
+                    var inputValue = "single invoice ";
+                    inputValue.split('').forEach(function(char) {
+                        inputField.value += char;
+                        var keyEvents = ['keydown', 'keypress', 'input', 'keyup'];
+                        keyEvents.forEach(function(eventName) {
+                            var event = new KeyboardEvent(eventName, {
+                                bubbles: true,
+                                cancelable: true,
+                                key: char,
+                                code: 'Key' + char.toUpperCase(),
+                                keyCode: char.charCodeAt(0)
+                            });
+                            inputField.dispatchEvent(event);
+                        });
+                    });
+                }
+            }, 1000);
+        }, 500);
+    }
+
+    // Functionality for the second button
+    function secondButtonFunctionality() {
+        var addButton = document.querySelector('button.gwt-Button[data-locator="button-add-filter"]');
+        if (addButton) addButton.click();
+        setTimeout(function() {
+            var processLink = document.querySelector('a.gwt-Anchor[data-locator="link-process"]');
+            if (processLink) processLink.click();
+            setTimeout(function() {
+                var inputField = document.querySelector('input.filter_input.uneditable_text');
+                if (inputField) {
+                    inputField.click();
+                    inputField.focus();
+                    var inputValue = "Commitment ";
+                    inputValue.split('').forEach(function(char) {
+                        inputField.value += char;
+                        var keyEvents = ['keydown', 'keypress', 'input', 'keyup'];
+                        keyEvents.forEach(function(eventName) {
+                            var event = new KeyboardEvent(eventName, {
+                                bubbles: true,
+                                cancelable: true,
+                                key: char,
+                                code: 'Key' + char.toUpperCase(),
+                                keyCode: char.charCodeAt(0)
+                            });
+                            inputField.dispatchEvent(event);
+                        });
+                    });
+                }
+            }, 1000);
+        }, 500);
+    }
+
+    // Functionality for the third button
+    function thirdButtonFunctionality() {
+        var addButton = document.querySelector('button.gwt-Button[data-locator="button-add-filter"]');
+        if (addButton) addButton.click();
+        setTimeout(function() {
+            var processLink = document.querySelector('a.gwt-Anchor[data-locator="link-process"]');
+            if (processLink) processLink.click();
+            setTimeout(function() {
+                var inputField = document.querySelector('input.filter_input.uneditable_text');
+                if (inputField) {
+                    inputField.click();
+                    inputField.focus();
+                    var inputValue = "Job ";
+                    inputValue.split('').forEach(function(char) {
+                        inputField.value += char;
+                        var keyEvents = ['keydown', 'keypress', 'input', 'keyup'];
+                        keyEvents.forEach(function(eventName) {
+                            var event = new KeyboardEvent(eventName, {
+                                bubbles: true,
+                                cancelable: true,
+                                key: char,
+                                code: 'Key' + char.toUpperCase(),
+                                keyCode: char.charCodeAt(0)
+                            });
+                            inputField.dispatchEvent(event);
+                        });
+                    });
+                }
+            }, 1000);
+        }, 500);
+    }
+
+    // Functionality for the fourth button
+    function fourthButtonFunctionality() {
+    window.focus(); // Focus on the window to ensure all elements are interactable
+    setTimeout(function() {
+        try {
+            // Extract page details
+            var pageTitle = document.title;
+            var domain = document.location.href;
+
+            // Retrieve and process the execution ID
+            var executionIDElement = document.querySelector("[data-locator='formrow-execution-id']");
+            var executionID = executionIDElement ? executionIDElement.innerText.trim() : null;
+            if (executionID) {
+                // Construct the new URL with execution ID
+                var newURL = `${domain};executionId=${executionID}`;
+
+                // Create plaintext and rich text versions for clipboard
+                var plaintext = `${pageTitle} ${newURL}`;
+                var richtext = `<a href='${newURL}'>${pageTitle}</a>`;
+
+                console.log("Copying details to clipboard...");
+
+                // Create clipboard items
+                const clipboardItem = new ClipboardItem({
+                    "text/plain": new Blob([plaintext], { type: "text/plain" }),
+                    "text/html": new Blob([richtext], { type: "text/html" })
+                });
+
+                // Write to the clipboard
+                navigator.clipboard.write([clipboardItem]).then(function() {
+                    // Notification to user
+                    var notification = document.createElement("div");
+                    notification.style = `position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+                                           background-color: black; color: yellow; padding: 20px; z-index: 1000;
+                                           border-radius: 15px; text-align: center;`;
+                    notification.innerText = "Copied: " + plaintext;
+                    document.body.appendChild(notification);
+
+                    setTimeout(function() {
+                        document.body.removeChild(notification);
+                    }, 2000);
+                }, function(err) {
+                    alert("Error copying to clipboard: " + err);
+                });
+            } else {
+                alert("Execution ID not found.");
+            }
+        } catch (err) {
+            alert("Error: " + err);
+        }
+    }, 100); // Short delay to ensure scripts run after full page load
+}
+
+
+    // Button NAMES
+    window.addEventListener('load', function() {
+        addButton('Invoice', firstButtonFunctionality, '65px', '500px');
+        addButton('Commitment', secondButtonFunctionality, '65px', '600px');
+        addButton('Job', thirdButtonFunctionality, '65px', '700px');
+        addButton('Hyperlink Ex. ID', fourthButtonFunctionality, '65px', '820px');
+    });
+})();
