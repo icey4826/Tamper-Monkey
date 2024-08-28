@@ -1,0 +1,254 @@
+// ==UserScript==
+// @name         Improved Notepad
+// @namespace    http://tampermonkey.net/
+// @version      1.9
+// @description  Create a movable, expandable, and modern notepad with persistent storage on any webpage, ensuring buttons are always visible without scrolling. Starts collapsed at bottom left corner of the screen, can return to original position or last moved position, and stores notes separately based on company ID. Captures copied text and lists it line by line.
+// @match        https://*.hh2.com/*
+// @match        https://app.procore.com/*
+// @match        https://us02.procore.com/*
+// @grant        GM_setClipboard
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // Function to extract company ID
+    function getCompanyId() {
+        let id = '';
+        if (document.location.href.includes("webclients")) {
+            id = document.location.href.match(/companies\/(\d*)/m)[1];
+        } else {
+            const match = document.body.innerHTML.match(/auth\?company_id=(\d+)/m);
+            if (match) {
+                id = match[1];
+            }
+        }
+        return id;
+    }
+
+    const companyId = getCompanyId();
+    const storageKey = `tampermonkey-notepad-${companyId}`;
+    const initialPosition = { bottom: '10px', left: '10px' };
+    let lastPosition = { top: '', left: initialPosition.left, bottom: initialPosition.bottom };
+    let isAtInitialPosition = true;
+
+    // Create the notepad container
+    const notepadContainer = document.createElement('div');
+    notepadContainer.style.position = 'fixed';
+    notepadContainer.style.bottom = initialPosition.bottom;
+    notepadContainer.style.left = initialPosition.left;
+    notepadContainer.style.width = '300px';
+    notepadContainer.style.height = '70px'; // Start collapsed
+    notepadContainer.style.backgroundColor = 'rgba(255, 255, 255, 0.9)';
+    notepadContainer.style.border = '1px solid #ccc';
+    notepadContainer.style.zIndex = '10000';
+    notepadContainer.style.boxShadow = '0 0 10px rgba(0,0,0,0.5)';
+    notepadContainer.style.resize = 'both';
+    notepadContainer.style.borderRadius = '8px';
+    notepadContainer.style.fontFamily = 'Arial, sans-serif';
+    notepadContainer.style.display = 'flex';
+    notepadContainer.style.flexDirection = 'column';
+
+    // Create the header for dragging
+    const header = document.createElement('div');
+    header.style.backgroundColor = '#007BFF';
+    header.style.color = 'white';
+    header.style.cursor = 'move';
+    header.style.padding = '10px';
+    header.style.textAlign = 'center';
+    header.style.borderTopLeftRadius = '8px';
+    header.style.borderTopRightRadius = '8px';
+    header.style.display = 'flex';
+    header.style.justifyContent = 'space-between';
+    header.style.flexShrink = '0';
+    header.textContent = 'Notepad';
+    notepadContainer.appendChild(header);
+
+    // Create the close button
+    const closeButton = document.createElement('button');
+    closeButton.textContent = '✖';
+    closeButton.style.backgroundColor = 'transparent';
+    closeButton.style.border = 'none';
+    closeButton.style.color = 'white';
+    closeButton.style.cursor = 'pointer';
+    closeButton.style.fontSize = '16px';
+    closeButton.addEventListener('click', () => {
+        notepadContainer.style.display = 'none';
+    });
+    header.appendChild(closeButton);
+
+    // Create the button container
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.textAlign = 'center';
+    buttonContainer.style.padding = '5px';
+    buttonContainer.style.backgroundColor = '#f1f1f1';
+    buttonContainer.style.flexShrink = '0';
+    buttonContainer.style.display = 'flex';
+    buttonContainer.style.justifyContent = 'space-around';
+    notepadContainer.appendChild(buttonContainer);
+
+    // Create the expand/collapse button
+    const expandCollapseButton = document.createElement('button');
+    expandCollapseButton.textContent = 'Expand';
+    expandCollapseButton.style.margin = '2px';
+    expandCollapseButton.style.padding = '3px 5px';
+    expandCollapseButton.style.border = '1px solid #ccc';
+    expandCollapseButton.style.borderRadius = '4px';
+    expandCollapseButton.style.cursor = 'pointer';
+    expandCollapseButton.style.fontSize = '12px';
+    expandCollapseButton.addEventListener('click', () => {
+        if (textarea.style.display === 'none') {
+            textarea.style.display = 'block';
+            notepadContainer.style.height = '250px';  // Adjust to original height
+            expandCollapseButton.textContent = 'Collapse';
+        } else {
+            textarea.style.display = 'none';
+            notepadContainer.style.height = '70px';  // Adjust to height of header + buttons
+            expandCollapseButton.textContent = 'Expand';
+        }
+    });
+    buttonContainer.appendChild(expandCollapseButton);
+
+    // Create the clear button
+    const clearButton = document.createElement('button');
+    clearButton.textContent = 'Clear';
+    clearButton.style.margin = '2px';
+    clearButton.style.padding = '3px 5px';
+    clearButton.style.border = '1px solid #ccc';
+    clearButton.style.borderRadius = '4px';
+    clearButton.style.cursor = 'pointer';
+    clearButton.style.fontSize = '12px';
+    clearButton.addEventListener('click', () => {
+        textarea.value = '';
+        localStorage.removeItem(storageKey);
+        updateWordCount();
+    });
+    buttonContainer.appendChild(clearButton);
+
+    // Create the toggle position button
+    const togglePositionButton = document.createElement('button');
+    togglePositionButton.textContent = 'Toggle Pos';
+    togglePositionButton.style.margin = '2px';
+    togglePositionButton.style.padding = '3px 5px';
+    togglePositionButton.style.border = '1px solid #ccc';
+    togglePositionButton.style.borderRadius = '4px';
+    togglePositionButton.style.cursor = 'pointer';
+    togglePositionButton.style.fontSize = '12px';
+    togglePositionButton.addEventListener('click', () => {
+        if (isAtInitialPosition) {
+            lastPosition = { top: notepadContainer.style.top, left: notepadContainer.style.left, bottom: notepadContainer.style.bottom };
+            notepadContainer.style.bottom = initialPosition.bottom;
+            notepadContainer.style.left = initialPosition.left;
+            notepadContainer.style.top = '';
+            notepadContainer.style.height = '70px'; // Collapse when moving to initial position
+            textarea.style.display = 'none';
+            expandCollapseButton.textContent = 'Expand';
+        } else {
+            notepadContainer.style.bottom = '';
+            notepadContainer.style.left = lastPosition.left;
+            notepadContainer.style.top = lastPosition.top;
+            notepadContainer.style.height = '250px'; // Expand when moving to last position
+            textarea.style.display = 'block';
+            expandCollapseButton.textContent = 'Collapse';
+        }
+        isAtInitialPosition = !isAtInitialPosition;
+    });
+    buttonContainer.appendChild(togglePositionButton);
+
+    // Create the "Copy All" button
+    const copyAllButton = document.createElement('button');
+    copyAllButton.textContent = 'Copy All';
+    copyAllButton.style.margin = '2px';
+    copyAllButton.style.padding = '3px 5px';
+    copyAllButton.style.border = '1px solid #ccc';
+    copyAllButton.style.borderRadius = '4px';
+    copyAllButton.style.cursor = 'pointer';
+    copyAllButton.style.fontSize = '12px';
+    copyAllButton.addEventListener('click', () => {
+        GM_setClipboard(textarea.value);
+        alert('All text copied to clipboard!');
+    });
+    buttonContainer.appendChild(copyAllButton);
+
+    // Create the textarea for notes
+    const textarea = document.createElement('textarea');
+    textarea.style.width = '100%';
+    textarea.style.height = 'calc(100% - 100px)'; // Adjust height to ensure buttons are visible
+    textarea.style.boxSizing = 'border-box';
+    textarea.style.border = 'none';
+    textarea.style.padding = '10px';
+    textarea.style.flexGrow = '1';
+    textarea.style.borderBottomLeftRadius = '8px';
+    textarea.style.borderBottomRightRadius = '8px';
+    textarea.style.display = 'none'; // Start hidden
+    textarea.value = localStorage.getItem(storageKey) || ''; // Load saved notes for the current company ID
+    notepadContainer.appendChild(textarea);
+
+    // Create word count display
+    const wordCountDisplay = document.createElement('div');
+    wordCountDisplay.style.fontSize = '12px';
+    wordCountDisplay.style.color = '#666';
+    wordCountDisplay.style.padding = '5px';
+    buttonContainer.appendChild(wordCountDisplay);
+
+    function updateWordCount() {
+        const wordCount = textarea.value.trim().split(/\s+/).length;
+        wordCountDisplay.textContent = `Words: ${wordCount}`;
+    }
+
+    // Append the notepad to the body
+    document.body.appendChild(notepadContainer);
+
+    // Save notes on input and update word count
+    let autosaveTimeout;
+    textarea.addEventListener('input', () => {
+        clearTimeout(autosaveTimeout);
+        autosaveTimeout = setTimeout(() => {
+            localStorage.setItem(storageKey, textarea.value);
+            console.log('Autosaved');
+        }, 1000); // Autosave after 1 second of inactivity
+        updateWordCount();
+    });
+
+    // Initial word count
+    updateWordCount();
+
+    // Make the notepad movable
+    let isDragging = false;
+    let offsetX, offsetY;
+
+    header.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        offsetX = e.clientX - notepadContainer.offsetLeft;
+        offsetY = e.clientY - notepadContainer.offsetTop;
+        document.addEventListener('mousemove', onMouseMove);
+    });
+
+    document.addEventListener('mouseup', () => {
+        isDragging = false;
+        document.removeEventListener('mousemove', onMouseMove);
+    });
+
+    function onMouseMove(e) {
+        if (isDragging) {
+            notepadContainer.style.left = `${e.clientX - offsetX}px`;
+            notepadContainer.style.top = `${e.clientY - offsetY}px`;
+            notepadContainer.style.bottom = 'auto'; // Reset bottom position when moved
+        }
+    }
+
+    // Capture copied text and append to the notepad
+    document.addEventListener('copy', (e) => {
+        setTimeout(() => {
+            navigator.clipboard.readText().then(copiedText => {
+                if (copiedText) {
+                    console.log("Copied text detected: ", copiedText);
+                    textarea.value += copiedText + '\n';
+                    localStorage.setItem(storageKey, textarea.value);
+                    updateWordCount();
+                }
+            }).catch(err => console.error('Failed to read clipboard contents: ', err));
+        }, 100); // Small delay to ensure clipboard is updated
+    });
+
+})();
