@@ -1,0 +1,161 @@
+// ==UserScript==
+// @name         Search and Timestamps
+// @namespace    http://tampermonkey.net/
+// @version      2024-07-17
+// @description  none
+// @author       You
+// @match        https://app.slack.com/client/*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=slack.com
+// @grant        none
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // Function to get all channel elements
+    function getAllChannelElements() {
+        return document.querySelectorAll('.p-channel_sidebar__channel');
+    }
+
+    // Function to get or create the timestamp element
+    function getOrCreateTimestampElement(channelElement) {
+        let timestampElement = channelElement.querySelector('.user-script-timestamp');
+        if (!timestampElement) {
+            timestampElement = document.createElement('span');
+            timestampElement.className = 'user-script-timestamp';
+            timestampElement.style.marginLeft = '5px';
+            timestampElement.style.fontSize = '0.8em';
+            timestampElement.style.color = '#999';
+            timestampElement.style.fontWeight = 'normal';
+
+            const nameElement = channelElement.querySelector('.p-channel_sidebar__name');
+            if (nameElement) {
+                nameElement.appendChild(timestampElement);
+            } else {
+                channelElement.appendChild(timestampElement);
+            }
+        }
+        return timestampElement;
+    }
+
+    // Function to update timestamp
+    function updateTimestamp(channelElement) {
+        const timestampElement = getOrCreateTimestampElement(channelElement);
+        const now = new Date();
+        timestampElement.textContent = `[${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}]`;
+    }
+
+    // Function to notify about new message
+    function notifyNewMessage(channelName) {
+        console.log(`New message in ${channelName} at ${new Date().toLocaleTimeString()}`);
+        // You can replace this with a more noticeable notification, like a browser notification or an alert
+    }
+
+    // Function to initialize channel search
+    function initChannelSearch() {
+        var searchInput = document.createElement('input');
+        searchInput.type = 'text';
+        searchInput.placeholder = 'Search Slack channels...';
+        searchInput.style.position = 'fixed';
+        searchInput.style.top = '5px';
+        searchInput.style.left = '80px';
+        searchInput.style.zIndex = '1000';
+        searchInput.style.padding = '10px';
+        searchInput.style.fontSize = '12px';
+        searchInput.style.border = '1px solid #ccc';
+        searchInput.style.borderRadius = '4px';
+        searchInput.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+        searchInput.style.backgroundColor = '#fff';
+        searchInput.style.color = '#000';
+        document.body.appendChild(searchInput);
+
+        var style = document.createElement('style');
+        style.innerHTML = `
+            .highlight {
+                background-color: yellow !important;
+                color: black !important;
+            }
+        `;
+        document.head.appendChild(style);
+
+        function filterChannels() {
+            var query = searchInput.value.toLowerCase();
+            var channels = getAllChannelElements();
+            var firstMatch = null;
+
+            channels.forEach(function(channel) {
+                var nameElement = channel.querySelector('.p-channel_sidebar__name');
+                if (nameElement) {
+                    var channelName = nameElement.textContent.trim().toLowerCase();
+                    if (channelName.includes(query)) {
+                        channel.style.display = 'flex';
+                        channel.classList.add('highlight');
+                        if (!firstMatch) {
+                            firstMatch = channel;
+                        }
+                    } else {
+                        channel.style.display = 'none';
+                        channel.classList.remove('highlight');
+                    }
+                }
+            });
+
+            if (query === '') {
+                channels.forEach(function(channel) {
+                    channel.style.display = 'flex';
+                    channel.classList.remove('highlight');
+                });
+            }
+
+            if (firstMatch) {
+                firstMatch.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+        }
+
+        searchInput.addEventListener('input', filterChannels);
+    }
+
+    // Set up a MutationObserver to watch for changes
+    const observer = new MutationObserver((mutations) => {
+        mutations.forEach((mutation) => {
+            if (mutation.type === 'childList' && mutation.addedNodes.length > 0) {
+                // Check if the added node is a message
+                const newMessages = Array.from(mutation.addedNodes).filter(node =>
+                    node.nodeType === Node.ELEMENT_NODE &&
+                    node.classList.contains('c-virtual_list__item')
+                );
+
+                if (newMessages.length > 0) {
+                    const channels = getAllChannelElements();
+                    channels.forEach(channel => {
+                        if (channel.classList.contains('p-channel_sidebar__channel--unread')) {
+                            const nameElement = channel.querySelector('.p-channel_sidebar__name');
+                            if (nameElement) {
+                                notifyNewMessage(nameElement.textContent.trim());
+                            }
+                            updateTimestamp(channel);
+                        }
+                    });
+                }
+            }
+        });
+    });
+
+    // Initialize everything when the DOM is ready
+    function init() {
+        initChannelSearch();
+        const targetNode = document.querySelector('#client-ui');
+        if (targetNode) {
+            observer.observe(targetNode, { childList: true, subtree: true });
+        }
+
+        // Initial update of timestamps for all channels
+        getAllChannelElements().forEach(updateTimestamp);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();
