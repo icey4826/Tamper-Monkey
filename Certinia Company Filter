@@ -1,0 +1,324 @@
+// ==UserScript==
+// @name         Salesforce Company Filter
+// @namespace    https://example.com/
+// @version      1.0
+// @description  Filter Salesforce tables to show only rows matching a company name.
+// @match        https://*.lightning.force.com/*
+// @match        https://*.salesforce.com/*
+// @match        https://*.vf.force.com/*
+// @grant        none
+// ==/UserScript==
+
+(function () {
+  'use strict';
+
+  /* ------------------------------------------------------------
+   * UI helpers
+   * ------------------------------------------------------------ */
+  function createSearchBox() {
+    const wrapper = document.createElement('div');
+    Object.assign(wrapper.style, {
+      position: 'fixed',
+      top: '12px',
+      left: '12px',
+      zIndex: 9999,
+      background: '#fff',
+      padding: '6px',
+      border: '1px solid #ccc',
+      borderRadius: '4px',
+      boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+      fontFamily: 'Arial, sans-serif'
+    });
+
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'Filter company…';
+    Object.assign(input.style, {
+      width: '220px',
+      padding: '4px',
+      fontSize: '14px'
+    });
+
+    const clearBtn = document.createElement('button');
+    clearBtn.textContent = 'Clear';
+    Object.assign(clearBtn.style, {
+      marginLeft: '6px',
+      padding: '4px 8px',
+      cursor: 'pointer'
+    });
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+    Object.assign(saveBtn.style, {
+      marginLeft: '6px',
+      padding: '4px 8px',
+      cursor: 'pointer'
+    });
+
+    const savedList = document.createElement('div');
+    Object.assign(savedList.style, {
+      marginTop: '6px',
+      display: 'flex',
+      flexWrap: 'wrap',
+      gap: '4px'
+    });
+
+    wrapper.appendChild(input);
+    wrapper.appendChild(clearBtn);
+    wrapper.appendChild(saveBtn);
+    wrapper.appendChild(savedList);
+    document.body.appendChild(wrapper);
+
+    /* ---------------- Saved searches helpers ---------------- */
+    const STORAGE_KEY = 'companyFilterSaved';
+
+    function loadSaved() {
+      try {
+        const data = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        return Array.isArray(data) ? data : [];
+      } catch (e) {
+        return [];
+      }
+    }
+
+    let savedSearches = loadSaved();
+
+    function persist() {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(savedSearches));
+    }
+
+    function renderSaved() {
+      savedList.innerHTML = '';
+      if (savedSearches.length === 0) return;
+
+      savedSearches.forEach((term) => {
+        const pill = document.createElement('div');
+        Object.assign(pill.style, {
+          display: 'inline-flex',
+          alignItems: 'center',
+          background: '#f0f0f0',
+          borderRadius: '12px',
+          padding: '2px 6px',
+          fontSize: '12px'
+        });
+
+        const termBtn = document.createElement('span');
+        termBtn.textContent = term;
+        Object.assign(termBtn.style, {
+          cursor: 'pointer'
+        });
+        termBtn.addEventListener('click', () => {
+          input.value = term;
+          filterRows(term);
+        });
+
+        const delBtn = document.createElement('span');
+        delBtn.textContent = '✕';
+        Object.assign(delBtn.style, {
+          marginLeft: '4px',
+          cursor: 'pointer',
+          color: '#c00',
+          fontWeight: 'bold'
+        });
+        delBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          savedSearches = savedSearches.filter((t) => t !== term);
+          persist();
+          renderSaved();
+        });
+
+        pill.appendChild(termBtn);
+        pill.appendChild(delBtn);
+        savedList.appendChild(pill);
+      });
+    }
+
+    renderSaved();
+
+    saveBtn.addEventListener('click', () => {
+      const term = input.value.trim();
+      if (term && !savedSearches.includes(term)) {
+        savedSearches.push(term);
+        persist();
+        renderSaved();
+      }
+    });
+
+    clearBtn.addEventListener('click', () => {
+      input.value = '';
+      filterRows('');
+      input.focus();
+    });
+
+    input.addEventListener('input', () => {
+      filterRows(input.value.trim());
+    });
+  }
+
+  /* ------------------------------------------------------------
+   * Date header styling
+   * ------------------------------------------------------------ */
+  function styleDateHeaders() {
+    const weekdayOrder = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+    // Colors from green to red (Sun to Sat)
+    const gradientColors = [
+      '#ff9e9e', // Sun (match Saturday red)
+      '#c8f1c8', // Mon - greenish
+      '#f0f4c4', // Tue - yellowish
+      '#ffe6b3', // Wed - light orange
+      '#ffd6a3', // Thu - deeper orange
+      '#ffbfa3', // Fri - light red
+      '#ff9e9e'  // Sat - red
+    ];
+
+    const today = new Date();
+    const todayIndex = today.getDay(); // 0 (Sun) - 6 (Sat)
+
+    // Format today date as M/D (no leading zeros) to match header text (e.g., 7/6)
+    const todayText = `${today.getMonth() + 1}/${today.getDate()}`;
+
+    // Select header cells that correspond to weekday/day headers across different grids
+    const headers = document.querySelectorAll('[data-ffxtype*="weekday"], [data-ffxtype*="day"]');
+
+    const cssRules = [];
+
+    headers.forEach((headerEl) => {
+      const textInner = headerEl.textContent || '';
+
+      // Determine weekday index based on abbreviation
+      const abbrev = weekdayOrder.find((w) => textInner.startsWith(w));
+      const dayIdx = abbrev ? weekdayOrder.indexOf(abbrev) : null;
+
+      if (dayIdx !== null) {
+        // Apply gradient color
+        headerEl.style.setProperty('background-color', gradientColors[dayIdx], 'important');
+
+        // Build CSS rule to color matching column cells
+        const ffid = headerEl.getAttribute('data-ffid');
+        const bgCol = gradientColors[dayIdx];
+        if (ffid) {
+          cssRules.push(
+            `[data-columnid="${ffid}"]{background-color:${bgCol}!important;}`,
+            `.f-grid-cell-${ffid}{background-color:${bgCol}!important;}`
+          );
+        }
+      }
+
+      // Highlight today (match formatted date string)
+      if (textInner.includes(todayText)) {
+        headerEl.style.setProperty('outline', '3px solid #ffbf00', 'important');
+        headerEl.style.setProperty('outline-offset', '-2px', 'important');
+      }
+    });
+
+    // Inject / update style tag for column backgrounds
+    let styleTag = document.getElementById('companyFilterDateStyles');
+    if (!styleTag) {
+      styleTag = document.createElement('style');
+      styleTag.id = 'companyFilterDateStyles';
+      document.head.appendChild(styleTag);
+    }
+    styleTag.textContent = cssRules.join('\n');
+  }
+
+  /* ------------------------------------------------------------
+   * Filtering logic
+   * ------------------------------------------------------------ */
+  function filterRows(query) {
+    const q = query.toLowerCase();
+
+    // 1) Ext-JS grid rows are rendered as standalone tables with data-recordid
+    const extRows = document.querySelectorAll('table[data-recordid]');
+
+    // 2) Fallback for ordinary HTML tables
+    const regularRows = document.querySelectorAll('table tr');
+
+    const allElements = new Set([...extRows, ...regularRows]);
+
+    const summaryClasses = [
+      'f-grid-row-summary',
+      'f-grid-row-total',
+      'f-grid-row-summary-item'
+    ];
+
+    const hasSummaryClass = (elem) =>
+      summaryClasses.some((c) => elem.classList.contains(c));
+
+    const isSummaryElement = (element) => {
+      // Directly on the element (table or tr)
+      if (hasSummaryClass(element)) return true;
+
+      // If it's a TABLE, inspect its first TR (ExtJS often nests)
+      if (element.tagName === 'TABLE') {
+        const innerTr = element.querySelector('tr');
+        if (innerTr && hasSummaryClass(innerTr)) return true;
+      }
+
+      return false;
+    };
+
+    allElements.forEach((el) => {
+      // Always keep summary / total rows visible
+      if (isSummaryElement(el)) {
+        el.style.display = '';
+        return;
+      }
+
+      const text = el.textContent.toLowerCase();
+
+      if (!q) {
+        el.style.display = '';
+      } else {
+        el.style.display = text.includes(q) ? '' : 'none';
+      }
+    });
+
+    // Final pass: force-show summary rows and their ancestors (in case a parent was hidden)
+    document
+      .querySelectorAll(
+        '.f-grid-row-summary, .f-grid-row-total, .f-grid-row-summary-item'
+      )
+      .forEach((summaryNode) => {
+        let current = summaryNode;
+        while (current && current !== document.body) {
+          current.style.display = '';
+          current = current.parentElement;
+        }
+      });
+  }
+
+  /* ------------------------------------------------------------
+   * Auto-update when Salesforce dynamically adds rows
+   * ------------------------------------------------------------ */
+  const domObserver = new MutationObserver(() => {
+    const input = document.querySelector('[placeholder="Filter company…"]');
+    if (input) {
+      filterRows(input.value.trim());
+    }
+
+    // Re-apply date header styling when DOM changes (e.g., new week loaded)
+    styleDateHeaders();
+  });
+
+  domObserver.observe(document.body, { childList: true, subtree: true });
+
+  /* ------------------------------------------------------------
+   * Decide whether to inject UI (avoid duplicate in parent Lightning frame)
+   * ------------------------------------------------------------ */
+  function shouldInject() {
+    // Only inject in Visualforce frames (where tables live)
+    return location.hostname.endsWith('.vf.force.com');
+  }
+
+  // Add the UI after DOMContentLoaded only if we should inject
+  if (shouldInject()) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', createSearchBox);
+      document.addEventListener('DOMContentLoaded', styleDateHeaders);
+    } else {
+      createSearchBox();
+      styleDateHeaders();
+    }
+  }
+})();
