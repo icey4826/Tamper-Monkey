@@ -1,0 +1,789 @@
+// ==UserScript==
+// @name         Enhanced Custom Field Extractor (v1.14.0)
+// @namespace    http://tampermonkey.net/
+// @version      1.14.0 // Version incremented for XPath override dropdown feature
+// @description  Extracts Procore Custom Fields. Includes field type. Dynamic XPath with breadcrumb detection + manual override dropdown. Collapsible panel, remembers state, TSV & XSL-FO Block list copy, Refresh button. Includes fallbacks for unstable selectors and correct XML escaping.
+// @author       Ivan Petrov
+// @match        https://app.procore.com/*
+// @match        https://us02.procore.com/*
+// @grant        GM_addStyle
+// @grant        GM_setClipboard
+// @grant        GM_setValue
+// @grant        GM_getValue
+// ==/UserScript==
+
+(function() {
+    'use strict';
+
+    // --- Configuration ---
+    // Selectors for finding custom field elements. These might need updating if Procore changes its HTML structure.
+
+    // Finds the main container for a custom field item (often a draggable div)
+    const divItemSelector = 'div[data-rbd-draggable-id^="custom_field"]';
+
+    // Finds standalone label elements associated with custom fields (less common).
+    const labelSelector = 'label[for^="custom_fields[custom_field_"]';
+
+    // Finds table rows containing custom fields (seen in Admin/Settings).
+    const trItemSelector = 'tr:has(button[data-qa^="edit-button-custom-field-"])';
+
+    // *** POTENTIALLY UNSTABLE ***
+    // Finds the SPAN containing the field name *within* a divItemSelector element.
+    const nameSelectorInDiv = 'span.StyledTypography-core-12_13_0__sc-1c4583t-0.cJNYGc'; // Example class, might need adjustment
+
+    // Finds the button within a trItemSelector to extract the field ID.
+    const idButtonSelectorInTr = 'button[data-qa^="edit-button-custom-field-"]';
+
+    // Finds the table cell containing the field name within a trItemSelector.
+    const nameCellSelectorInTr = 'td:nth-child(2)';
+
+    // ADDED: Finds the table cell containing the field type within a trItemSelector. Assumes 3rd column.
+    const typeCellSelectorInTr = 'td:nth-child(3)';
+
+    // ADDED: Finds the container for the field type text within a divItemSelector.
+    const typeSelectorInDiv = '.StyledBox-core-12_18_1__sc-fgsy0p-0.djjGES span';
+
+    // *** POTENTIALLY UNSTABLE ***
+    // Finds section header (H2) elements.
+    const h2SeparatorSelectors = [
+        'h2[class^="StyledH2-core"]', // Primary selector (potentially unstable)
+        'h2' // Fallback: Match any H2 element
+    ];
+
+    // --- Other Settings ---
+    const maxWaitTime = 15000; // 15 seconds
+    const checkInterval = 500; // 0.5 seconds
+    const displayPanelId = 'custom-field-extractor-panel-v114';
+    const storageKey = 'customFieldPanelState_v114';
+    const xpathOverrideKey = 'customFieldXPathOverride_v114';
+    const defaultSectionName = 'General Fields';
+    const DEBUG_MODE = true;
+
+    // XPath base options for the dropdown
+    const xpathOptions = {
+        'auto': { label: 'Auto-detect', path: null },
+        'work_order': { label: 'Work Order', path: '/WorkOrder/CustomFieldSections/*/CustomFields/CustomField{ID}/Value' },
+        'work_order_project': { label: 'Work Order + Project', path: '/WorkOrder/Project/CustomFieldSections/*/CustomFields/CustomField{ID}/Value' },
+        'purchase_order': { label: 'Purchase Order', path: '/PurchaseOrder/CustomFieldSections/*/CustomFields/CustomField{ID}/Value' },
+        'purchase_order_project': { label: 'Purchase Order + Project', path: '/PurchaseOrder/Project/CustomFieldSections/*/CustomFields/CustomField{ID}/Value' },
+        'prime_contract': { label: 'Prime Contract', path: '/PrimeContract/CustomFieldSections/*/CustomFields/CustomField{ID}/Value' },
+        'prime_contract_project': { label: 'Prime Contract + Project', path: '/PrimeContract/Project/CustomFieldSections/*/CustomFields/CustomField{ID}/Value' },
+        'generic_tool': { label: 'Generic Tool', path: '/GenericToolItem/CustomFieldSections/*/CustomFields/CustomField{ID}/Value' },
+        'generic_tool_project': { label: 'Generic Tool + Project', path: '/GenericToolItem/Project/CustomFieldSections/*/CustomFields/CustomField{ID}/Value' }
+    };
+    // --- End Configuration ---
+
+    // --- CSS ---
+    // MODIFIED: Added style for the field type display
+    GM_addStyle(`
+        #${displayPanelId} .panel-copy-btn, #${displayPanelId} .panel-copy-xml-btn { padding: 6px 12px; font-size: 13px; cursor: pointer; background-color: #0078d4; color: white; border: none; border-radius: 4px; vertical-align: middle; margin-left: 5px; }
+        #${displayPanelId} .panel-copy-btn:first-of-type, #${displayPanelId} .panel-copy-xml-btn:first-of-type { margin-left: 0; }
+        #${displayPanelId} .panel-copy-btn:hover, #${displayPanelId} .panel-copy-xml-btn:hover { background-color: #005a9e; }
+        #${displayPanelId} .panel-copy-btn:disabled, #${displayPanelId} .panel-copy-xml-btn:disabled { background-color: #cccccc; cursor: not-allowed; opacity: 0.7; }
+        #${displayPanelId} { position: fixed; bottom: 15px; right: 15px; width: 480px; max-height: 500px; background-color: #ffffff; border: 1px solid #d0d0d0; border-radius: 6px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 9999; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; font-size: 13px; color: #333; display: flex; flex-direction: column; transition: width 0.3s ease, height 0.3s ease, max-height 0.3s ease; }
+        #${displayPanelId}.collapsed { width: 220px; height: auto; max-height: 50px; }
+        #${displayPanelId} h4 { margin: 0; padding: 10px 15px; background-color: #f0f0f0; border-bottom: 1px solid #d0d0d0; font-size: 15px; font-weight: 600; color: #111; display: flex; justify-content: space-between; align-items: center; cursor: pointer; flex-shrink: 0; }
+        #${displayPanelId}.collapsed h4 { border-bottom: none; }
+        #${displayPanelId} .panel-title-area { display: flex; align-items: center; overflow: hidden; white-space: nowrap; flex-grow: 1; margin-right: 10px; }
+        #${displayPanelId} .panel-toggle-icon { font-size: 16px; margin-right: 8px; width: 16px; display: inline-block; text-align: center; flex-shrink: 0; }
+        #${displayPanelId} .panel-controls { display: flex; align-items: center; flex-shrink: 0; }
+        #${displayPanelId} .panel-controls button { cursor: pointer; border: none; background: none; font-size: 20px; color: #555; padding: 0 5px; line-height: 1; }
+        #${displayPanelId} .panel-controls button:hover { color: #000; }
+        #${displayPanelId} .panel-refresh-btn { font-size: 18px; order: -1; }
+        #${displayPanelId} .panel-close-btn { font-size: 20px; margin-left: 5px; }
+        #${displayPanelId} .panel-results { flex-grow: 1; flex-shrink: 1; overflow-y: auto; padding: 15px; background-color: #fff; min-height: 30px; display: block; opacity: 1; }
+        #${displayPanelId} .panel-footer { flex-shrink: 0; padding: 10px 15px; border-top: 1px solid #d0d0d0; background-color: #f0f0f0; text-align: right; white-space: nowrap; opacity: 1; display: block; }
+        #${displayPanelId}.collapsed .panel-results, #${displayPanelId}.collapsed .panel-footer { display: none; max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; border-top: none; overflow: hidden; }
+        #${displayPanelId} .panel-results .result-item { margin-bottom: 8px; line-height: 1.4; word-wrap: break-word; overflow-wrap: break-word; padding-left: 10px; }
+        #${displayPanelId} .panel-results .result-item .result-id { font-weight: 600; color: #005a9e; margin-right: 8px; display: inline-block; vertical-align: top; cursor: pointer; text-decoration: none; border-bottom: 1px dashed #005a9e; padding: 1px 3px; border-radius: 3px; transition: background-color 0.4s ease-out, color 0.4s ease-out, border-color 0.2s ease, text-decoration 0.2s ease; }
+        #${displayPanelId} .panel-results .result-item .result-id:hover { text-decoration: none; border-bottom-style: solid; color: #003c6a; background-color: #e6f2fa; }
+        #${displayPanelId} .panel-results .result-item .result-id.field-id-copied { background-color: #d4edda; color: #155724; border-color: #c3e6cb; transition: background-color 0.1s ease-in, color 0.1s ease-in; }
+        #${displayPanelId} .panel-results .result-item .result-name { display: inline; }
+        #${displayPanelId} .panel-results .result-item .result-type { display: inline; color: #666; font-style: italic; margin-left: 5px; } /* ADDED */
+        #${displayPanelId} .panel-results .separator-item { font-size: 14px; font-weight: bold; color: #333; margin-top: 15px; margin-bottom: 8px; padding-bottom: 3px; border-bottom: 1px solid #eee; }
+        #${displayPanelId} .panel-results .separator-item:first-child { margin-top: 0; }
+        #${displayPanelId} .panel-results .status-message { font-style: italic; color: #666; padding: 10px 0; }
+        #${displayPanelId} .copy-feedback { font-style: italic; font-size: 12px; margin-right: 10px; vertical-align: middle; color: green; min-height: 1em; display: inline-block; }
+        #${displayPanelId} .copy-feedback.error { color: red; }
+        #${displayPanelId} .copy-feedback.info { color: #666; }
+        #${displayPanelId} .xpath-override-section { padding: 8px 15px; border-bottom: 1px solid #d0d0d0; background-color: #f9f9f9; display: flex; align-items: center; gap: 10px; font-size: 12px; flex-shrink: 0; }
+        #${displayPanelId}.collapsed .xpath-override-section { display: none; }
+        #${displayPanelId} .xpath-override-section label { font-weight: 600; color: #333; flex-shrink: 0; }
+        #${displayPanelId} .xpath-override-section select { padding: 4px 8px; border: 1px solid #ccc; border-radius: 3px; background-color: white; font-size: 12px; color: #333; cursor: pointer; flex-grow: 1; max-width: 200px; }
+        #${displayPanelId} .xpath-override-section select:focus { outline: none; border-color: #0078d4; box-shadow: 0 0 0 2px rgba(0,120,212,0.2); }
+        #${displayPanelId} .xpath-override-section .override-indicator { font-size: 11px; color: #d83b01; font-weight: 600; flex-shrink: 0; }
+    `);
+
+    // --- Helper for logging ---
+    function logDebug(...args) { if (DEBUG_MODE) console.log('[CF Extractor Debug]', ...args); }
+    logDebug("Enhanced Custom Field Extractor script (v1.14.0 - XPath Override Dropdown) running...");
+
+    let elapsedTime = 0;
+    let panelElement = null;
+    let isInitiallyCollapsed = GM_getValue(storageKey, 'collapsed') === 'collapsed';
+    let intervalId = null;
+    let scanTimeoutId = null;
+
+    // --- Function to extract breadcrumb information ---
+    function getBreadcrumbText() {
+        try {
+            const breadcrumbNav = document.querySelector('nav[aria-label="Breadcrumb"]');
+            if (!breadcrumbNav) {
+                logDebug("No breadcrumb navigation found.");
+                return [];
+            }
+
+            // Look for crumb elements - try multiple possible class patterns
+            const crumbSelectors = [
+                '.StyledCrumb-core-12_18_1__sc-1q6nqfz-3', // Current pattern from user's example
+                '[class*="StyledCrumb"]', // Fallback for class variations
+                'a > div', // Generic fallback for anchor-wrapped divs
+                'div[aria-current="true"]' // Current page crumb
+            ];
+
+            const crumbElements = [];
+            for (const selector of crumbSelectors) {
+                const elements = breadcrumbNav.querySelectorAll(selector);
+                if (elements.length > 0) {
+                    crumbElements.push(...elements);
+                    break; // Use the first selector that finds elements
+                }
+            }
+
+            const breadcrumbs = Array.from(crumbElements)
+                .map(el => el.textContent?.trim())
+                .filter(text => text && text.length > 0);
+
+            logDebug(`Extracted breadcrumbs: [${breadcrumbs.join(' > ')}]`);
+            return breadcrumbs;
+        } catch (error) {
+            console.error("[CF Extractor] Error extracting breadcrumbs:", error);
+            return [];
+        }
+    }
+
+    // --- Function to determine XPath base dynamically ---
+    // ENHANCED: Added breadcrumb-based detection and manual override
+    function getXPathBase() {
+        // Check for manual override first
+        const override = GM_getValue(xpathOverrideKey, 'auto');
+        if (override !== 'auto' && xpathOptions[override]) {
+            const overridePath = xpathOptions[override].path;
+            logDebug(`Using manual override: ${overridePath} (${xpathOptions[override].label})`);
+            return overridePath;
+        }
+
+        // Auto-detection logic (existing breadcrumb + URL detection)
+        const url = window.location.href;
+        const breadcrumbs = getBreadcrumbText();
+        let basePath = '';
+        const defaultPath = '/WorkOrder/CustomFieldSections/*/CustomFields/CustomField{ID}/Value';
+
+        // Enhanced logic: Use both URL patterns and breadcrumb information
+        let detectionMethod = 'url'; // Track how we determined the path
+
+        // First, try breadcrumb-based detection for more specific matching
+        if (breadcrumbs.length > 0) {
+            const breadcrumbText = breadcrumbs.join(' ').toLowerCase();
+
+            // Check if this is Project custom field sections
+            const isProjectFieldsets = breadcrumbText.includes('project fieldsets') ||
+                                      (breadcrumbText.includes('project') && breadcrumbText.includes('fieldset'));
+
+            // Determine base tool type
+            let baseToolPath = '';
+            let toolType = '';
+
+            if (breadcrumbText.includes('generic tool') || breadcrumbText.includes('tool fieldsets')) {
+                baseToolPath = '/GenericToolItem';
+                toolType = 'Generic Tool';
+            } else if (breadcrumbText.includes('prime contract') || breadcrumbText.includes('contract fieldsets')) {
+                baseToolPath = '/PrimeContract';
+                toolType = 'Prime Contract';
+            } else if (breadcrumbText.includes('purchase order') || breadcrumbText.includes('po fieldsets')) {
+                baseToolPath = '/PurchaseOrder';
+                toolType = 'Purchase Order';
+            } else if (breadcrumbText.includes('work order') || breadcrumbText.includes('wo fieldsets')) {
+                baseToolPath = '/WorkOrder';
+                toolType = 'Work Order';
+            } else if (isProjectFieldsets) {
+                // If we detect project fieldsets but no specific tool type, assume Work Order
+                baseToolPath = '/WorkOrder';
+                toolType = 'Work Order';
+            }
+
+            // Combine base tool with Project modifier if needed
+            if (baseToolPath) {
+                if (isProjectFieldsets) {
+                    basePath = `${baseToolPath}/Project/CustomFieldSections/*/CustomFields/CustomField{ID}/Value`;
+                    detectionMethod = `breadcrumb (${toolType} + Project)`;
+                } else {
+                    basePath = `${baseToolPath}/CustomFieldSections/*/CustomFields/CustomField{ID}/Value`;
+                    detectionMethod = `breadcrumb (${toolType})`;
+                }
+            }
+        }
+
+        // Fallback to URL-based detection if breadcrumbs didn't provide a match
+        if (!basePath) {
+            if (url.includes('/project/admin')) {
+                basePath = '/WorkOrder/Project/CustomFieldSections/*/CustomFields/CustomField{ID}/Value';
+                detectionMethod = 'url (/project/admin)';
+            } else if (url.includes('generic_tool')) {
+                basePath = '/GenericToolItem/CustomFieldSections/*/CustomFields/CustomField{ID}/Value';
+                detectionMethod = 'url (generic_tool)';
+            } else if (url.includes('prime_contracts')) {
+                basePath = '/PrimeContract/CustomFieldSections/*/CustomFields/CustomField{ID}/Value';
+                detectionMethod = 'url (prime_contracts)';
+            } else if (url.includes('purchase_order')) {
+                basePath = '/PurchaseOrder/CustomFieldSections/*/CustomFields/CustomField{ID}/Value';
+                detectionMethod = 'url (purchase_order)';
+            } else if (url.includes('work_order')) {
+                basePath = defaultPath;
+                detectionMethod = 'url (work_order)';
+            } else {
+                basePath = defaultPath;
+                detectionMethod = 'default (unrecognized)';
+                console.warn(`[CF Extractor] URL pattern not recognized (${url}) and no breadcrumb match found, using default XPath base: ${defaultPath}`);
+            }
+        }
+
+        logDebug(`Determined XPath base: ${basePath} (method: ${detectionMethod})`);
+        return basePath;
+    }
+
+    // --- Core Scan and Display Function ---
+    // (Unchanged)
+    function scanAndDisplayFields() {
+        logDebug("scanAndDisplayFields triggered.");
+        clearTimeout(scanTimeoutId);
+        updateDisplayPanel(null, true);
+
+        scanTimeoutId = setTimeout(() => {
+            logDebug("Starting scan...");
+            const itemsDiv = document.querySelectorAll(divItemSelector);
+            const itemsLabel = document.querySelectorAll(labelSelector);
+            const itemsTr = document.querySelectorAll(trItemSelector);
+            const itemsSeparator = document.querySelectorAll(h2SeparatorSelectors.join(', '));
+            const totalFound = itemsDiv.length + itemsLabel.length + itemsTr.length + itemsSeparator.length;
+            logDebug(`Found Elements - Divs: ${itemsDiv.length}, Labels: ${itemsLabel.length}, TRs: ${itemsTr.length}, Separators: ${itemsSeparator.length}`);
+
+            if (totalFound > 0) {
+                const allElements = [...itemsDiv, ...itemsLabel, ...itemsTr, ...itemsSeparator];
+                try {
+                    allElements.sort((a, b) => {
+                        const position = a.compareDocumentPosition(b);
+                        if (position & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+                        if (position & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+                        return 0;
+                    });
+                } catch (e) {
+                    console.error("[CF Extractor] Error sorting elements:", e);
+                }
+                const extractedData = processItems(allElements);
+                updateDisplayPanel(extractedData);
+            } else {
+                logDebug("No relevant elements found.");
+                updateDisplayPanel([]);
+            }
+        }, 100);
+    }
+
+    // --- Initial Scan Timer ---
+    // (Unchanged)
+    function startInitialScanTimer() {
+        logDebug("Starting initial scan timer...");
+        elapsedTime = 0;
+        clearInterval(intervalId);
+
+        intervalId = setInterval(() => {
+            const quickCheckSelector = `${divItemSelector}, ${labelSelector}, ${trItemSelector}, ${h2SeparatorSelectors.join(', ')}`;
+            const quickCheck = document.querySelector(quickCheckSelector);
+
+            if (quickCheck) {
+                logDebug("Initial elements detected.");
+                clearInterval(intervalId);
+                intervalId = null;
+                scanAndDisplayFields();
+            } else {
+                elapsedTime += checkInterval;
+                if (elapsedTime >= maxWaitTime) {
+                    logDebug(`Max wait time (${maxWaitTime}ms) reached.`);
+                    clearInterval(intervalId);
+                    intervalId = null;
+                    console.warn(`[CF Extractor] Stopped waiting for elements after ${maxWaitTime / 1000} seconds. Performing final scan attempt.`);
+                    scanAndDisplayFields();
+                }
+            }
+        }, checkInterval);
+    }
+
+    // --- Data Processing Function ---
+    // MODIFIED: Added logic to extract Field Type.
+    function processItems(sortedElements) {
+        const extractedData = [];
+        const foundFieldIds = new Set();
+        const labelForRegex = /custom_fields\[custom_field_(\d+)\]\[value\]/;
+        const trIdRegex = /(\d+)$/;
+        const divIdRegexNew = /^custom_field_(\d+):\d+$/;
+        const divIdRegexOld = /custom_field:(\d+)$/;
+
+        let currentSectionTitle = defaultSectionName;
+
+        sortedElements.forEach((element) => {
+            try {
+                let fieldData = null;
+                let isField = false;
+
+                if (h2SeparatorSelectors.some(selector => element.matches(selector))) {
+                    const title = element.textContent?.trim();
+                    if (title) {
+                        currentSectionTitle = title;
+                        extractedData.push({ type: 'separator', title });
+                        logDebug(`Identified Separator: "${title}"`);
+                    }
+                }
+                else if (element.matches(divItemSelector)) {
+                    let fieldName = 'N/A', id = 'N/A', fieldType = 'N/A'; // MODIFIED: Added fieldType
+                    const rawId = element.getAttribute('data-rbd-draggable-id');
+                    let idMatch = rawId?.match(divIdRegexNew) || rawId?.match(divIdRegexOld);
+
+                    if (idMatch && idMatch[1]) {
+                        id = idMatch[1];
+
+                        // --- Name Extraction Logic (from v1.11.2) ---
+                        let foundName = false;
+                        const specificNameSpan = element.querySelector(nameSelectorInDiv);
+                        if (specificNameSpan && specificNameSpan.textContent?.trim()) {
+                            fieldName = specificNameSpan.textContent.trim();
+                            foundName = true;
+                        }
+                        if (!foundName) {
+                            const generalNameSelector = 'span[class^="StyledTypography-core"]';
+                            const potentialSpans = element.querySelectorAll(generalNameSelector);
+                            const typeDisplayBoxSelector = '.StyledBox-core-12_18_1__sc-fgsy0p-0.djjGES';
+                            for (const span of potentialSpans) {
+                                const text = span.textContent?.trim();
+                                if (text && !span.closest(typeDisplayBoxSelector)) {
+                                    fieldName = text;
+                                    foundName = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!foundName) {
+                            const nameLabel = element.querySelector('label');
+                            if (nameLabel && nameLabel.textContent?.trim()) {
+                                fieldName = nameLabel.textContent.trim();
+                                foundName = true;
+                            }
+                        }
+                        if (!foundName) fieldName = 'N/A';
+                        // --- End Name Extraction ---
+
+                        // ADDED: Field Type Extraction
+                        const typeSpan = element.querySelector(typeSelectorInDiv);
+                        if (typeSpan && typeSpan.textContent?.trim()) {
+                            fieldType = typeSpan.textContent.trim();
+                            logDebug(`Found field type "${fieldType}" for ID ${id}`);
+                        }
+
+                        fieldData = { type: 'field', fieldName, customFieldId: id, section: currentSectionTitle, fieldType }; // MODIFIED: Added fieldType
+                        isField = true;
+                    } else {
+                        logDebug(`Could not extract div ID from: ${rawId}`);
+                    }
+                }
+                else if (element.matches(labelSelector) && !element.closest(divItemSelector) && !element.closest(trItemSelector)) {
+                    let fieldName = 'N/A', id = 'N/A';
+                    const rawFor = element.getAttribute('for');
+                    const forMatch = rawFor?.match(labelForRegex);
+                    if (forMatch && forMatch[1]) {
+                        id = forMatch[1];
+                        fieldName = element.textContent?.trim() || 'N/A';
+                        // MODIFIED: Added fieldType (N/A for labels as it's not available here)
+                        fieldData = { type: 'field', fieldName, customFieldId: id, section: currentSectionTitle, fieldType: 'N/A' };
+                        isField = true;
+                    }
+                }
+                else if (element.matches(trItemSelector)) {
+                    let fieldName = 'N/A', id = 'N/A', fieldType = 'N/A'; // MODIFIED: Added fieldType
+                    const editButton = element.querySelector(idButtonSelectorInTr);
+                    const nameCell = element.querySelector(nameCellSelectorInTr);
+                    const typeCell = element.querySelector(typeCellSelectorInTr); // ADDED: Get type cell
+
+                    if (editButton) {
+                        const qaValue = editButton.getAttribute('data-qa');
+                        const qaMatch = qaValue?.match(trIdRegex);
+                        if (qaMatch && qaMatch[1]) id = qaMatch[1];
+                    }
+                    if (nameCell) {
+                        fieldName = nameCell.textContent?.trim() || 'N/A';
+                    }
+                    // ADDED: Extract type from type cell
+                    if (typeCell) {
+                        fieldType = typeCell.textContent?.trim() || 'N/A';
+                    }
+
+                    if (id !== 'N/A') {
+                        // MODIFIED: Added fieldType
+                        fieldData = { type: 'field', fieldName, customFieldId: id, section: currentSectionTitle, fieldType };
+                        isField = true;
+                    }
+                }
+
+                if (isField && fieldData && fieldData.customFieldId !== 'N/A' && !foundFieldIds.has(fieldData.customFieldId)) {
+                    extractedData.push(fieldData);
+                    foundFieldIds.add(fieldData.customFieldId);
+                } else if (isField && fieldData && foundFieldIds.has(fieldData.customFieldId)) {
+                    logDebug(`Skipping duplicate field ID: ${fieldData.customFieldId}`);
+                }
+
+            } catch (error) {
+                console.error(`[CF Extractor] Error processing element:`, element, error);
+            }
+        });
+        logDebug(`Processing complete. Unique fields: ${foundFieldIds.size}. Total items: ${extractedData.length}`);
+        return extractedData;
+    }
+
+
+    // --- UI Panel Functions ---
+
+    // MODIFIED: Updated panel version in title
+    function createDisplayPanel() {
+        if (document.getElementById(displayPanelId)) return document.getElementById(displayPanelId);
+        panelElement = document.createElement('div');
+        panelElement.id = displayPanelId;
+        if (isInitiallyCollapsed) panelElement.classList.add('collapsed');
+
+        panelElement.innerHTML = `
+            <h4 title="Click title area to toggle panel size">
+                <div class="panel-title-area">
+                    <span class="panel-toggle-icon">${isInitiallyCollapsed ? '+' : '-'}</span>
+                    <span>Custom Fields (v1.14)</span>
+                </div>
+                <div class="panel-controls">
+                    <button class="panel-refresh-btn" title="Refresh List">&#x21bb;</button>
+                    <button class="panel-close-btn" title="Close Panel">&times;</button>
+                </div>
+            </h4>
+            <div class="xpath-override-section">
+                <label for="xpath-override-select">XPath Type:</label>
+                <select id="xpath-override-select" title="Override automatic detection">
+                    ${Object.entries(xpathOptions).map(([key, option]) =>
+                        `<option value="${key}">${option.label}</option>`
+                    ).join('')}
+                </select>
+                <span class="override-indicator" id="override-indicator-${displayPanelId}" style="display: none;">OVERRIDE</span>
+            </div>
+            <div class="panel-results"><div class="status-message">Initializing...</div></div>
+            <div class="panel-footer">
+                <span class="copy-feedback" id="copy-feedback-msg-${displayPanelId}"></span>
+                <button class="panel-copy-xml-btn" title="Copy all XML Snippets (one per line)" disabled>Copy XML Snippets</button>
+                <button class="panel-copy-btn" title="Copy results as TSV (Tab-Separated)" disabled>Copy as TSV</button>
+            </div>
+        `;
+        document.body.appendChild(panelElement);
+
+        const header = panelElement.querySelector('h4');
+        const closeButton = panelElement.querySelector('.panel-close-btn');
+        const refreshButton = panelElement.querySelector('.panel-refresh-btn');
+        const resultsContainer = panelElement.querySelector('.panel-results');
+        const copyTsvButton = panelElement.querySelector('.panel-copy-btn');
+        const copyXmlButton = panelElement.querySelector('.panel-copy-xml-btn');
+        const xpathSelect = panelElement.querySelector('#xpath-override-select');
+        const overrideIndicator = panelElement.querySelector(`#override-indicator-${displayPanelId}`);
+
+        // Set the initial dropdown value from storage
+        if (xpathSelect) {
+            const currentOverride = GM_getValue(xpathOverrideKey, 'auto');
+            xpathSelect.value = currentOverride;
+            updateOverrideIndicator(currentOverride, overrideIndicator);
+        }
+
+        if (header) {
+            header.addEventListener('click', (event) => {
+                if (panelElement && !panelElement.querySelector('.panel-controls').contains(event.target)) {
+                    togglePanelCollapse();
+                }
+            });
+        }
+        if (closeButton) {
+            closeButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                if (panelElement) {
+                    panelElement.remove(); panelElement = null;
+                    if (intervalId) clearInterval(intervalId); intervalId = null;
+                    clearTimeout(scanTimeoutId);
+                    logDebug("Panel closed and timer stopped.");
+                }
+            });
+        }
+        if (refreshButton) {
+            refreshButton.addEventListener('click', (event) => {
+                event.stopPropagation();
+                if (intervalId) clearInterval(intervalId); intervalId = null;
+                scanAndDisplayFields();
+            });
+        }
+
+        // XPath override dropdown handler
+        if (xpathSelect) {
+            xpathSelect.addEventListener('change', (event) => {
+                const selectedValue = event.target.value;
+                GM_setValue(xpathOverrideKey, selectedValue);
+                updateOverrideIndicator(selectedValue, overrideIndicator);
+                logDebug(`XPath override changed to: ${selectedValue}`);
+
+                // Refresh the display to update XML snippets with new XPath base
+                if (intervalId) clearInterval(intervalId); intervalId = null;
+                scanAndDisplayFields();
+            });
+        }
+
+        if (copyTsvButton) copyTsvButton.addEventListener('click', handleCopyTsvClick);
+        if (copyXmlButton) copyXmlButton.addEventListener('click', handleCopyXmlSnippetsClick);
+        if (resultsContainer) resultsContainer.addEventListener('click', handleFieldIdClick);
+
+        return panelElement;
+    }
+
+    function togglePanelCollapse() {
+        if (!panelElement) return;
+        panelElement.classList.toggle('collapsed');
+        const isCollapsed = panelElement.classList.contains('collapsed');
+        const toggleIcon = panelElement.querySelector('.panel-toggle-icon');
+        if (toggleIcon) toggleIcon.textContent = isCollapsed ? '+' : '-';
+        GM_setValue(storageKey, isCollapsed ? 'collapsed' : 'expanded');
+    }
+
+    function updateOverrideIndicator(selectedValue, indicatorElement) {
+        if (!indicatorElement) return;
+
+        if (selectedValue === 'auto') {
+            indicatorElement.style.display = 'none';
+        } else {
+            indicatorElement.style.display = 'inline';
+            indicatorElement.textContent = 'OVERRIDE';
+            indicatorElement.title = `Using manual override: ${xpathOptions[selectedValue]?.label || selectedValue}`;
+        }
+    }
+
+    // MODIFIED: Updated to display the field type in the panel.
+    function updateDisplayPanel(data, isLoading = false) {
+        panelElement = document.getElementById(displayPanelId) || createDisplayPanel();
+        if (!panelElement) {
+            console.error("[CF Extractor] Failed to find or recreate panel. Cannot update display.");
+            return;
+        }
+
+        const resultsContainer = panelElement.querySelector('.panel-results');
+        const copyTsvButton = panelElement.querySelector('.panel-copy-btn');
+        const copyXmlButton = panelElement.querySelector('.panel-copy-xml-btn');
+        const feedbackSpan = panelElement.querySelector('.copy-feedback');
+
+        if (!resultsContainer || !copyTsvButton || !copyXmlButton || !feedbackSpan) {
+            console.error("[CF Extractor] Critical panel elements missing, cannot update display.");
+            return;
+        }
+
+        resultsContainer.innerHTML = '';
+        const disableButtons = isLoading || !data || data.length === 0 || !data.some(item => item.type === 'field');
+        copyTsvButton.disabled = disableButtons;
+        copyXmlButton.disabled = disableButtons;
+        copyTsvButton.removeAttribute('data-tsv-data');
+        copyXmlButton.removeAttribute('data-xml-snippet-list');
+
+        if (isLoading) {
+            resultsContainer.innerHTML = '<div class="status-message">Loading...</div>';
+            if (feedbackSpan) feedbackSpan.textContent = '';
+            return;
+        }
+
+        if (!data || data.length === 0) {
+            resultsContainer.innerHTML = '<div class="status-message"><i>No fields or separators found.</i></div>';
+            if (feedbackSpan) feedbackSpan.textContent = '';
+            return;
+        }
+
+        data.forEach(item => {
+            if (item.type === 'separator') {
+                const sepDiv = document.createElement('div');
+                sepDiv.className = 'separator-item';
+                sepDiv.textContent = item.title;
+                resultsContainer.appendChild(sepDiv);
+            } else if (item.type === 'field') {
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'result-item';
+
+                const idSpan = document.createElement('span');
+                idSpan.className = 'result-id';
+                idSpan.textContent = item.customFieldId !== 'N/A' ? `CustomField${item.customFieldId}:` : 'ID_N/A:';
+                if (item.customFieldId !== 'N/A') {
+                    idSpan.dataset.fieldId = item.customFieldId;
+                    idSpan.dataset.fieldName = item.fieldName || '';
+                    idSpan.title = `Click to copy XML Snippet for ${item.fieldName || 'this field'}`;
+                } else {
+                    idSpan.style.cursor = 'default';
+                    idSpan.style.borderBottom = 'none';
+                    idSpan.style.color = '#666';
+                }
+
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'result-name';
+                nameSpan.textContent = ` ${item.fieldName || '(No Name Found)'}`;
+
+                itemDiv.appendChild(idSpan);
+                itemDiv.appendChild(nameSpan);
+
+                // ADDED: Display the field type
+                if (item.fieldType && item.fieldType !== 'N/A') {
+                    const typeSpan = document.createElement('span');
+                    typeSpan.className = 'result-type';
+                    typeSpan.textContent = `(${item.fieldType})`;
+                    itemDiv.appendChild(typeSpan);
+                }
+
+                resultsContainer.appendChild(itemDiv);
+            }
+        });
+
+        const hasFields = data.some(item => item.type === 'field' && item.customFieldId !== 'N/A');
+        if (hasFields) {
+            copyTsvButton.dataset.tsvData = generateTsvData(data);
+            copyXmlButton.dataset.xmlSnippetList = generateXmlSnippetList(data);
+            copyTsvButton.disabled = false;
+            copyXmlButton.disabled = false;
+        }
+
+        if (feedbackSpan) feedbackSpan.textContent = '';
+    }
+
+
+    // --- Interactive Click Handler ---
+    // (Unchanged)
+    function handleFieldIdClick(event) {
+        const clickedIdElement = event.target.closest('.result-id');
+        if (!clickedIdElement || !clickedIdElement.dataset.fieldId || clickedIdElement.dataset.fieldId === 'N/A') return;
+
+        const clickedId = clickedIdElement.dataset.fieldId;
+        const fieldName = clickedIdElement.dataset.fieldName || 'Field Name N/A';
+        const feedbackSpanId = `copy-feedback-msg-${displayPanelId}`;
+        const currentXPathBase = getXPathBase();
+        if (!currentXPathBase) {
+            setCopyFeedback("Error: XPath base not found.", 'error', feedbackSpanId);
+            return;
+        }
+        const innerXPath = currentXPathBase.replace('{ID}', clickedId);
+        const escapedLabel = fieldName.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+        const finalXmlString = `<xfd:field xpath="${innerXPath}" label="${escapedLabel}"/>`;
+        copyToClipboard(finalXmlString, `XML Snippet copied!`, feedbackSpanId, 'info');
+
+        clickedIdElement.classList.add('field-id-copied');
+        setTimeout(() => {
+            if (clickedIdElement && clickedIdElement.classList.contains('field-id-copied')) {
+                clickedIdElement.classList.remove('field-id-copied');
+            }
+        }, 1200);
+        event.stopPropagation();
+    }
+
+
+    // --- Utility Functions ---
+
+    // MODIFIED: Added FieldType to TSV output.
+    function generateTsvData(data) {
+        if (!data || data.length === 0) return "";
+        const header = "Section\tCustomFieldID\tFieldName\tFieldType\n";
+        const rows = data
+            .filter(item => item.type === 'field' && item.customFieldId !== 'N/A')
+            .map(item => {
+                const section = (item.section || defaultSectionName);
+                const id = `CustomField${item.customFieldId}`;
+                const name = (item.fieldName || '');
+                const fieldType = (item.fieldType || ''); // ADDED
+                const sanitize = (str) => String(str).replace(/[\n\t\r]/g, ' ');
+                return `${sanitize(section)}\t${sanitize(id)}\t${sanitize(name)}\t${sanitize(fieldType)}`; // MODIFIED
+            });
+        return header + rows.join("\n");
+    }
+
+    // (generateXmlSnippetList unchanged)
+    function generateXmlSnippetList(data) {
+        if (!data || data.length === 0) return "";
+        const currentXPathBase = getXPathBase();
+        if (!currentXPathBase) {
+            setCopyFeedback("Error: XPath base not found for XML.", 'error', `copy-feedback-msg-${displayPanelId}`);
+            return "";
+        }
+        const snippets = data
+            .filter(item => item.type === 'field' && item.customFieldId !== 'N/A')
+            .map(item => {
+                const innerXPath = currentXPathBase.replace('{ID}', item.customFieldId);
+                const fieldName = item.fieldName || 'Field Name N/A';
+                const escapedLabel = fieldName.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+                return `\t<fo:block><xfd:field xpath="${innerXPath}" label="${escapedLabel}"/></fo:block>`;
+            });
+        return snippets.join("\n");
+    }
+
+    function handleCopyTsvClick(event) {
+        const button = event.target;
+        const tsvData = button.dataset.tsvData;
+        const feedbackSpanId = `copy-feedback-msg-${displayPanelId}`;
+        if (!tsvData || tsvData.split('\n').length <= 1) {
+            setCopyFeedback("No field data to copy.", 'error', feedbackSpanId);
+            return;
+        }
+        copyToClipboard(tsvData, "TSV copied!", feedbackSpanId, 'success');
+        setTimeout(() => clearCopyFeedback(feedbackSpanId), 3000);
+    }
+
+    function handleCopyXmlSnippetsClick(event) {
+        const button = event.target;
+        const xmlSnippetList = button.dataset.xmlSnippetList;
+        const feedbackSpanId = `copy-feedback-msg-${displayPanelId}`;
+        if (!xmlSnippetList) {
+            setCopyFeedback("No XML/FO Block data generated.", 'error', feedbackSpanId);
+            return;
+        }
+        copyToClipboard(xmlSnippetList, "XML/FO Block list copied!", feedbackSpanId, 'success');
+        setTimeout(() => clearCopyFeedback(feedbackSpanId), 3000);
+    }
+
+    function copyToClipboard(text, feedbackMessage, feedbackSpanId, feedbackType = 'success') {
+        try {
+            GM_setClipboard(text, 'text');
+            setCopyFeedback(feedbackMessage, feedbackType, feedbackSpanId);
+        } catch (err) {
+            console.error('[CF Extractor] GM_setClipboard error:', err);
+            setCopyFeedback("Copy failed! See console.", 'error', feedbackSpanId);
+        }
+    }
+    function setCopyFeedback(message, type = 'success', spanId) {
+        const feedbackSpan = document.getElementById(spanId);
+        if (feedbackSpan) {
+            feedbackSpan.textContent = message;
+            feedbackSpan.className = 'copy-feedback';
+            if (type === 'error') feedbackSpan.classList.add('error');
+            else if (type === 'info') feedbackSpan.classList.add('info');
+        }
+    }
+    function clearCopyFeedback(spanId) {
+        const fb = document.getElementById(spanId);
+        if (fb) {
+            fb.textContent = '';
+            fb.className = 'copy-feedback';
+        }
+    }
+
+    // --- Initialization ---
+    panelElement = createDisplayPanel();
+    if (panelElement) {
+        startInitialScanTimer();
+    } else {
+        console.error("[CF Extractor] Failed to create the initial display panel. Script cannot proceed.");
+    }
+
+})();
